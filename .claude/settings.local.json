@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx bmad-method install)",
+      "Bash(npm install:*)",
+      "Bash(bmad-method install:*)",
+      "Bash(echo:*)",
+      "Bash(npx --help:*)",
+      "Bash(bmad-method:*)",
+      "Bash(npm root:*)",
+      "Bash(npm run dev:*)",
+      "Bash(node:*)",
+      "Bash(npx tsx:*)",
+      "Bash(findstr:*)",
+      "Bash(dir:*)",
+      "Bash(git init:*)",
+      "Bash(git branch:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

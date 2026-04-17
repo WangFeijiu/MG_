@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "patches": [
+    {
+      "id": "patch_001",
+      "targetNodeId": "11:1605",
+      "op": "update_style",
+      "payload": {
+        "borderRadius": {
+          "linked": false,
+          "topLeft": 16,
+          "topRight": 16,
+          "bottomRight": 0,
+          "bottomLeft": 0
+        },
+        "overflow": "hidden"
+      }
+    },
+    {
+      "id": "patch_002",
+      "targetNodeId": "11:1609",
+      "op": "update_layout",
+      "payload": {
+        "y": 8
+      }
+    },
+    {
+      "id": "patch_003",
+      "targetNodeId": "11:1608",
+      "op": "update_style",
+      "payload": {
+        "padding": {
+          "top": 16,
+          "right": 16,
+          "bottom": 16,
+          "left": 16
+        }
+      }
+    }
+  ]
+}

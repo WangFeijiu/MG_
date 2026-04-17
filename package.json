@@ -1,0 +1,29 @@
+{
+  "name": "mastergo-dsl-toolchain",
+  "version": "1.0.0",
+  "description": "MasterGo DSL to Code Toolchain - High fidelity page generation with visual editing",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "mastergo",
+    "dsl",
+    "code-generation",
+    "react"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@mastergo/magic-mcp": "^0.1.6",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "dotenv": "^17.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  }
+}
