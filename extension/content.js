@@ -5,13 +5,125 @@
 
 let selectedElement = null;
 let pendingPatches = [];
+let currentLang = "en";
+let styleInfoPanel = null;
+
+const i18n = {
+  en: {
+    Radius: "Radius",
+    Move: "Move",
+    Padding: "Padding",
+    "Size / Gap": "Size / Gap",
+    Typography: "Typography",
+    Overflow: "Overflow",
+    "All children": "All children",
+    Step: "Step",
+    Link: "Link",
+    Apply: "Apply",
+    Reset: "Reset",
+    MoveReset: "R",
+    W: "W",
+    H: "H",
+    Gap: "Gap",
+    Size: "Size",
+    Weight: "Weight",
+    Color: "Color",
+    BgColor: "Bg",
+    T: "T",
+    B: "B",
+    L: "L",
+    R: "R",
+    "Save Patch": "Save Patch",
+    "Export JSON": "Export JSON",
+    NoChanges: "No changes",
+    Saved: "Saved",
+    Exported: "Exported",
+    Export: "EN",
+    CN: "CN",
+    Info: "Info",
+    // Info panel labels
+    r: "r", p: "p", w: "w", h: "h", gap: "gap",
+    fs: "fs", fw: "fw", c: "c", bg: "bg",
+  },
+  zh: {
+    Radius: "圆角",
+    Move: "移动",
+    Padding: "内边距",
+    "Size / Gap": "尺寸 / 间距",
+    Typography: "文字",
+    Overflow: "裁剪",
+    "All children": "包含子节点",
+    Step: "步长",
+    Link: "联动",
+    Apply: "应用",
+    Reset: "重置",
+    MoveReset: "重",
+    W: "宽",
+    H: "高",
+    Gap: "间距",
+    Size: "字号",
+    Weight: "字重",
+    Color: "颜色",
+    BgColor: "背景",
+    T: "上",
+    B: "下",
+    L: "左",
+    R: "右",
+    "Save Patch": "保存 Patch",
+    "Export JSON": "导出 JSON",
+    NoChanges: "无改动",
+    Saved: "已保存",
+    Exported: "已导出",
+    Export: "英",
+    CN: "中",
+    Info: "信息",
+    // Info panel labels
+    r: "圆", p: "边", w: "宽", h: "高", gap: "间",
+    fs: "字", fw: "重", c: "色", bg: "背",
+  },
+};
+
+function t(key) {
+  return i18n[currentLang][key] || key;
+}
 
 init();
 
 function init() {
+  // 启动时从 storage 读取语言设置
+  chrome.storage.local.get("lang", (result) => {
+    if (result.lang) currentLang = result.lang;
+  });
+
+  // 监听 storage 变化，popup 切换语言时同步更新所有打开的面板
+  chrome.storage.onChanged.addListener((changes) => {
+    if (changes.lang) {
+      currentLang = changes.lang.newValue;
+      // 同步更新信息浮层
+      if (styleInfoPanel) {
+        applyI18nToPanel(styleInfoPanel);
+      }
+      // 同步更新右键菜单
+      document.querySelectorAll(".dsl-editor-menu").forEach(menu => {
+        menu.querySelectorAll(".dsl-i18n, .dsl-i18n-text").forEach(el => {
+          const key = el.dataset.key;
+          if (key) el.textContent = t(key);
+        });
+      });
+    }
+  });
+
   document.addEventListener("contextmenu", handleContextMenu, true);
   document.addEventListener("click", handleLeftClick, true);
   document.addEventListener("keydown", handleKeyDown, true);
+}
+
+// 应用 i18n 到面板
+function applyI18nToPanel(panel) {
+  panel.querySelectorAll(".dsl-i18n, .dsl-i18n-text").forEach(el => {
+    const key = el.dataset.key;
+    if (key) el.textContent = t(key);
+  });
 }
 
 // ============ 选中元素 ============
@@ -19,6 +131,23 @@ function init() {
 function handleLeftClick(e) {
   if (e.target.closest(".dsl-editor-menu")) return;
   closeAllMenus();
+
+  const dslNode = e.target.closest("[data-dsl-id]");
+  if (!dslNode) {
+    closeStyleInfoPanel();
+    return;
+  }
+
+  // 同一个元素重复点击不重复显示
+  if (selectedElement === dslNode && styleInfoPanel) return;
+
+  closeStyleInfoPanel();
+
+  if (selectedElement) selectedElement.classList.remove("dsl-selected");
+  selectedElement = dslNode;
+  selectedElement.classList.add("dsl-selected");
+
+  showStyleInfoPanel(e.pageX, e.pageY, dslNode);
 }
 
 function handleContextMenu(e) {
@@ -28,6 +157,8 @@ function handleContextMenu(e) {
 
   e.preventDefault();
   e.stopPropagation();
+
+  closeStyleInfoPanel();
 
   if (selectedElement) selectedElement.classList.remove("dsl-selected");
 
@@ -50,17 +181,21 @@ function showContextMenu(x, y, element) {
   menu.className = "dsl-editor-menu";
 
   const nodeId = element.dataset.dslId;
-  const nodeName = element.dataset.dslName || nodeId;
+  let nodeName = element.dataset.dslName || nodeId;
+  if (nodeName.length > 18) nodeName = nodeName.slice(0, 18) + "…";
   const cs = getComputedStyle(element);
+  const bgColor = getOwnBackgroundColor(element);
 
   // 头部信息
   menu.innerHTML = `
-    <div class="dsl-menu-header">${nodeName}</div>
+    <div class="dsl-menu-header">
+      <span class="dsl-header-name">${nodeName}</span>
+    </div>
 
     <!-- 圆角 - 默认展开 -->
     <div class="dsl-menu-section" data-section="radius">
       <div class="dsl-section-toggle" data-target="radius">
-        <span class="dsl-section-arrow"></span>Radius
+        <span class="dsl-section-arrow"></span><span class="dsl-i18n" data-key="Radius">${t("Radius")}</span>
       </div>
       <div class="dsl-section-body">
         <div class="dsl-menu-row">
@@ -80,18 +215,18 @@ function showContextMenu(x, y, element) {
     <!-- 移动 - 默认展开 -->
     <div class="dsl-menu-section" data-section="move">
       <div class="dsl-section-toggle" data-target="move">
-        <span class="dsl-section-arrow"></span>Move
+        <span class="dsl-section-arrow"></span><span class="dsl-i18n" data-key="Move">${t("Move")}</span>
       </div>
       <div class="dsl-section-body">
         <div class="dsl-move-row">
-          <label class="dsl-link-toggle"><input type="checkbox" class="dsl-move-all-check" />All children</label>
-          <label>Step <input type="number" class="dsl-input dsl-move-step" value="10" min="1" style="width:50px" /></label>
+          <label class="dsl-link-toggle"><input type="checkbox" class="dsl-move-all-check" /><span class="dsl-i18n" data-key="All children">${t("All children")}</span></label>
+          <label><span class="dsl-i18n" data-key="Step">${t("Step")}</span> <input type="number" class="dsl-input dsl-move-step" value="10" min="1" style="width:50px" /></label>
         </div>
         <div class="dsl-move-pad">
           <button class="dsl-dir-btn" data-dir="up" title="Move Up">&#9650;</button>
           <div class="dsl-move-lr">
             <button class="dsl-dir-btn" data-dir="left" title="Move Left">&#9664;</button>
-            <button class="dsl-dir-btn dsl-dir-center" data-dir="reset" title="Reset">R</button>
+            <button class="dsl-dir-btn dsl-dir-center" data-dir="reset" title="Reset"><span class="dsl-i18n" data-key="MoveReset">${t("MoveReset")}</span></button>
             <button class="dsl-dir-btn" data-dir="right" title="Move Right">&#9654;</button>
           </div>
           <button class="dsl-dir-btn" data-dir="down" title="Move Down">&#9660;</button>
@@ -102,26 +237,26 @@ function showContextMenu(x, y, element) {
     <!-- Padding - 默认折叠 -->
     <div class="dsl-menu-section" data-section="padding">
       <div class="dsl-section-toggle" data-target="padding">
-        <span class="dsl-section-arrow"></span>Padding
+        <span class="dsl-section-arrow"></span><span class="dsl-i18n" data-key="Padding">${t("Padding")}</span>
       </div>
       <div class="dsl-section-body">
         <div class="dsl-padding-toolbar">
-          <label class="dsl-link-toggle"><input type="checkbox" class="dsl-pad-link" checked />Link</label>
+          <label class="dsl-link-toggle"><input type="checkbox" class="dsl-pad-link" checked /><span class="dsl-i18n" data-key="Link">${t("Link")}</span></label>
           <input type="number" class="dsl-input dsl-pad-all" placeholder="All" min="0" />
-          <button class="dsl-pad-apply">Apply</button>
-          <button class="dsl-pad-reset">Reset</button>
+          <button class="dsl-pad-apply dsl-i18n-text" data-key="Apply">${t("Apply")}</button>
+          <button class="dsl-pad-reset dsl-i18n-text" data-key="Reset">${t("Reset")}</button>
         </div>
         <div class="dsl-padding-grid">
           <div></div>
-          <label>T <input type="number" class="dsl-input dsl-pt" value="${Math.round(parseFloat(cs.paddingTop) || 0)}" min="0" /></label>
+          <label><span class="dsl-i18n" data-key="T">${t("T")}</span> <input type="number" class="dsl-input dsl-pt" value="${Math.round(parseFloat(cs.paddingTop) || 0)}" min="0" /></label>
           <div></div>
-          <label>L <input type="number" class="dsl-input dsl-pl" value="${Math.round(parseFloat(cs.paddingLeft) || 0)}" min="0" /></label>
+          <label><span class="dsl-i18n" data-key="L">${t("L")}</span> <input type="number" class="dsl-input dsl-pl" value="${Math.round(parseFloat(cs.paddingLeft) || 0)}" min="0" /></label>
           <div class="dsl-padding-center">
             <svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="1" width="12" height="12" rx="2" fill="none" stroke="#6b7280" stroke-width="1.5"/></svg>
           </div>
-          <label>R <input type="number" class="dsl-input dsl-pr" value="${Math.round(parseFloat(cs.paddingRight) || 0)}" min="0" /></label>
+          <label><span class="dsl-i18n" data-key="R">${t("R")}</span> <input type="number" class="dsl-input dsl-pr" value="${Math.round(parseFloat(cs.paddingRight) || 0)}" min="0" /></label>
           <div></div>
-          <label>B <input type="number" class="dsl-input dsl-pb" value="${Math.round(parseFloat(cs.paddingBottom) || 0)}" min="0" /></label>
+          <label><span class="dsl-i18n" data-key="B">${t("B")}</span> <input type="number" class="dsl-input dsl-pb" value="${Math.round(parseFloat(cs.paddingBottom) || 0)}" min="0" /></label>
           <div></div>
         </div>
       </div>
@@ -130,15 +265,15 @@ function showContextMenu(x, y, element) {
     <!-- 尺寸+间距 - 合并为一个区 -->
     <div class="dsl-menu-section" data-section="size">
       <div class="dsl-section-toggle" data-target="size">
-        <span class="dsl-section-arrow"></span>Size / Gap
+        <span class="dsl-section-arrow"></span><span class="dsl-i18n" data-key="Size / Gap">${t("Size / Gap")}</span>
       </div>
       <div class="dsl-section-body">
         <div class="dsl-menu-row">
-          <label>W <input type="number" class="dsl-input dsl-w" value="${Math.round(parseFloat(cs.width))}" /></label>
-          <label>H <input type="number" class="dsl-input dsl-h" value="${Math.round(parseFloat(cs.height))}" /></label>
+          <label><span class="dsl-i18n" data-key="W">${t("W")}</span> <input type="number" class="dsl-input dsl-w" value="${Math.round(parseFloat(cs.width))}" /></label>
+          <label><span class="dsl-i18n" data-key="H">${t("H")}</span> <input type="number" class="dsl-input dsl-h" value="${Math.round(parseFloat(cs.height))}" /></label>
         </div>
         <div class="dsl-menu-row">
-          <label>Gap <input type="number" class="dsl-input dsl-gap" value="${Math.round(parseFloat(cs.gap) || 0)}" min="0" /></label>
+          <label><span class="dsl-i18n" data-key="Gap">${t("Gap")}</span> <input type="number" class="dsl-input dsl-gap" value="${Math.round(parseFloat(cs.gap) || 0)}" min="0" /></label>
         </div>
       </div>
     </div>
@@ -146,12 +281,12 @@ function showContextMenu(x, y, element) {
     <!-- 文字 - 默认折叠 -->
     <div class="dsl-menu-section" data-section="typo">
       <div class="dsl-section-toggle" data-target="typo">
-        <span class="dsl-section-arrow"></span>Typography
+        <span class="dsl-section-arrow"></span><span class="dsl-i18n" data-key="Typography">${t("Typography")}</span>
       </div>
       <div class="dsl-section-body">
         <div class="dsl-menu-row">
-          <label>Size <input type="number" class="dsl-input dsl-fontsize" value="${Math.round(parseFloat(cs.fontSize) || 16)}" min="1" /></label>
-          <label>Weight
+          <label><span class="dsl-i18n" data-key="Size">${t("Size")}</span> <input type="number" class="dsl-input dsl-fontsize" value="${Math.round(parseFloat(cs.fontSize) || 16)}" min="1" /></label>
+          <label><span class="dsl-i18n" data-key="Weight">${t("Weight")}</span>
             <select class="dsl-select dsl-fontweight">
               <option value="400" ${cs.fontWeight === "400" ? "selected" : ""}>400</option>
               <option value="500" ${cs.fontWeight === "500" ? "selected" : ""}>500</option>
@@ -161,8 +296,12 @@ function showContextMenu(x, y, element) {
           </label>
         </div>
         <div class="dsl-menu-row">
-          <label>Color <input type="color" class="dsl-color-picker" value="${rgbToHex(cs.color)}" /></label>
-          <label class="dsl-color-hex">${rgbToHex(cs.color)}</label>
+          <label><span class="dsl-i18n" data-key="Color">${t("Color")}</span> <input type="color" class="dsl-color-picker dsl-text-color" value="${rgbToHex(cs.color)}" /></label>
+          <label class="dsl-color-hex dsl-text-color-hex">${rgbToHex(cs.color)}</label>
+        </div>
+        <div class="dsl-menu-row">
+          <label><span class="dsl-i18n" data-key="BgColor">${t("BgColor")}</span> <input type="color" class="dsl-color-picker dsl-bg-color" value="${bgColor.isTransparent ? "#ffffff" : bgColor.hex}" /></label>
+          <label class="dsl-color-hex dsl-bg-color-hex">${bgColor.raw}</label>
         </div>
       </div>
     </div>
@@ -170,7 +309,7 @@ function showContextMenu(x, y, element) {
     <!-- 裁剪 - 默认折叠 -->
     <div class="dsl-menu-section" data-section="clip">
       <div class="dsl-section-toggle" data-target="clip">
-        <span class="dsl-section-arrow"></span>Overflow
+        <span class="dsl-section-arrow"></span><span class="dsl-i18n" data-key="Overflow">${t("Overflow")}</span>
       </div>
       <div class="dsl-section-body">
         <div class="dsl-menu-row">
@@ -193,8 +332,8 @@ function showContextMenu(x, y, element) {
 
     <!-- 操作按钮 -->
     <div class="dsl-menu-actions">
-      <button class="dsl-btn dsl-btn-save">Save Patch (${pendingPatches.length})</button>
-      <button class="dsl-btn dsl-btn-export">Export JSON</button>
+      <button class="dsl-btn dsl-btn-save"><span class="dsl-i18n-text" data-key="Save Patch">${t("Save Patch")}</span> (${pendingPatches.length})</button>
+      <button class="dsl-btn dsl-btn-export dsl-i18n-text" data-key="Export JSON">${t("Export JSON")}</button>
     </div>
   `;
 
@@ -202,7 +341,7 @@ function showContextMenu(x, y, element) {
 
   // ============ 折叠逻辑 ============
   // 默认展开 radius 和 size，其余折叠
-  const openSections = new Set(["radius", "move", "size"]);
+  const openSections = new Set([]);
   menu.querySelectorAll(".dsl-section-toggle").forEach(toggle => {
     const target = toggle.dataset.target;
     const section = menu.querySelector(`[data-section="${target}"]`);
@@ -420,14 +559,24 @@ function showContextMenu(x, y, element) {
     addPatch(nodeId, "update_style", { fontWeight: v });
   });
 
-  // Color
-  const colorPicker = menu.querySelector(".dsl-color-picker");
-  const colorHex = menu.querySelector(".dsl-color-hex");
+  // Text Color
+  const colorPicker = menu.querySelector(".dsl-text-color");
+  const colorHex = menu.querySelector(".dsl-text-color-hex");
   colorPicker.addEventListener("input", () => {
     const hex = colorPicker.value;
     element.style.color = hex;
     colorHex.textContent = hex;
     addPatch(nodeId, "update_style", { color: hex });
+  });
+
+  // Background Color
+  const bgPicker = menu.querySelector(".dsl-bg-color");
+  const bgHex = menu.querySelector(".dsl-bg-color-hex");
+  bgPicker.addEventListener("input", () => {
+    const hex = bgPicker.value;
+    element.style.backgroundColor = hex;
+    bgHex.textContent = hex;
+    addPatch(nodeId, "update_style", { backgroundColor: hex });
   });
 
   // Overflow
@@ -450,16 +599,16 @@ function showContextMenu(x, y, element) {
   saveBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     if (pendingPatches.length === 0) {
-      showToast("No changes to save");
+      showToast(t("NoChanges"));
       return;
     }
     chrome.storage.local.get(["patches"], (result) => {
       const existing = result.patches || [];
       const all = [...existing, ...pendingPatches];
       chrome.storage.local.set({ patches: all }, () => {
-        showToast(`Saved ${pendingPatches.length} patches`);
+        showToast(`${t("Saved")} ${pendingPatches.length}`);
         pendingPatches = [];
-        saveBtn.textContent = "Save Patch (0)";
+        saveBtn.innerHTML = `<span class="dsl-i18n-text" data-key="Save Patch">${t("Save Patch")}</span> (0)`;
       });
     });
   });
@@ -471,7 +620,7 @@ function showContextMenu(x, y, element) {
     chrome.storage.local.get(["patches"], (result) => {
       const all = [...(result.patches || []), ...pendingPatches];
       if (all.length === 0) {
-        showToast("No patches to export");
+        showToast(t("NoChanges"));
         return;
       }
       const blob = new Blob([JSON.stringify({ version: 1, patches: all }, null, 2)], { type: "application/json" });
@@ -481,7 +630,7 @@ function showContextMenu(x, y, element) {
       a.download = "mastergo-dsl-patch.json";
       a.click();
       URL.revokeObjectURL(url);
-      showToast(`Exported ${all.length} patches`);
+      showToast(`${t("Exported")} ${all.length}`);
     });
   });
 
@@ -492,6 +641,129 @@ function showContextMenu(x, y, element) {
 
 function closeAllMenus() {
   document.querySelectorAll(".dsl-editor-menu").forEach(m => m.remove());
+}
+
+function closeStyleInfoPanel() {
+  if (styleInfoPanel) {
+    styleInfoPanel.remove();
+    styleInfoPanel = null;
+  }
+}
+
+function showStyleInfoPanel(x, y, element) {
+  closeStyleInfoPanel();
+
+  const cs = getComputedStyle(element);
+  const nodeName = element.dataset.dslName || element.dataset.dslId;
+
+  const r = Math.round(parseFloat(cs.borderRadius) || 0);
+  const w = Math.round(parseFloat(cs.width) || 0);
+  const h = Math.round(parseFloat(cs.height) || 0);
+  const gap = Math.round(parseFloat(cs.gap) || 0);
+  const pt = Math.round(parseFloat(cs.paddingTop) || 0);
+  const pr = Math.round(parseFloat(cs.paddingRight) || 0);
+  const pb = Math.round(parseFloat(cs.paddingBottom) || 0);
+  const pl = Math.round(parseFloat(cs.paddingLeft) || 0);
+  const fs = Math.round(parseFloat(cs.fontSize) || 0);
+  const color = rgbToHex(cs.color);
+  const bgColor = getOwnBackgroundColor(element);
+  const bgDisplayVal = bgColor.isTransparent ? "-" : bgColor.raw;
+  const fw = cs.fontWeight;
+  const type = element.dataset.dslType;
+
+  const panel = document.createElement("div");
+  panel.className = "dsl-style-info";
+
+  const nodeNameDisplay = nodeName.length > 16 ? nodeName.slice(0, 16) + "…" : nodeName;
+
+  let typeTag = "";
+  if (type === "text") typeTag = `<span class="dsl-info-tag dsl-info-type">TEXT</span>`;
+  else if (type === "image") typeTag = `<span class="dsl-info-tag dsl-info-type">IMG</span>`;
+  else if (type === "container") typeTag = `<span class="dsl-info-tag dsl-info-type">${type.toUpperCase()}</span>`;
+
+  // Row 1 (结构): r | p | w | h | gap — 所有类型
+  const row1 = `
+    <div class="dsl-info-row dsl-info-row-structure">
+      <span class="dsl-info-item" data-open="radius"><span class="dsl-info-label dsl-i18n" data-key="r">${t("r")}</span><span class="dsl-info-val">${r}</span></span>
+      <span class="dsl-info-item" data-open="padding"><span class="dsl-info-label dsl-i18n" data-key="p">${t("p")}</span><span class="dsl-info-val">${pt || pr || pb || pl ? `${pt} ${pr} ${pb} ${pl}` : "0"}</span></span>
+      <span class="dsl-info-item" data-open="size"><span class="dsl-info-label dsl-i18n" data-key="w">${t("w")}</span><span class="dsl-info-val">${w || "auto"}</span></span>
+      <span class="dsl-info-item" data-open="size"><span class="dsl-info-label dsl-i18n" data-key="h">${t("h")}</span><span class="dsl-info-val">${h || "auto"}</span></span>
+      <span class="dsl-info-item" data-open="size"><span class="dsl-info-label dsl-i18n" data-key="gap">${t("gap")}</span><span class="dsl-info-val">${gap}</span></span>
+    </div>
+  `;
+
+  // Row 2 (文字): fs | fw — 仅 text 类型
+  const row2 = type === "text" ? `
+    <div class="dsl-info-row dsl-info-row-typo">
+      <span class="dsl-info-item" data-open="typo"><span class="dsl-info-label dsl-i18n" data-key="fs">${t("fs")}</span><span class="dsl-info-val">${fs}</span></span>
+      <span class="dsl-info-item" data-open="typo"><span class="dsl-info-label dsl-i18n" data-key="fw">${t("fw")}</span><span class="dsl-info-val">${fw}</span></span>
+    </div>
+  ` : "";
+
+  // Row 3 (颜色): c | bg — 所有类型
+  const row3 = `
+    <div class="dsl-info-row dsl-info-row-color">
+      <span class="dsl-info-item dsl-info-color" data-open="typo"><span class="dsl-info-label dsl-i18n" data-key="c">${t("c")}</span><span class="dsl-info-swatch${color === "transparent" ? "" : " dsl-swatch-solid"}"${color !== "transparent" ? ` style="--swatch-color:${color}"` : ""}></span><span class="dsl-info-val" style="color:${color === "transparent" ? "#6b7280" : "#9ca3af"}">${color === "transparent" ? "-" : color}</span></span>
+      <span class="dsl-info-item dsl-info-color" data-open="typo"><span class="dsl-info-label dsl-i18n" data-key="bg">${t("bg")}</span><span class="dsl-info-swatch${bgColor.isTransparent ? "" : " dsl-swatch-solid"}"${!bgColor.isTransparent ? ` style="--swatch-color:${bgColor.hex}"` : ""}></span><span class="dsl-info-val" style="color:${bgColor.isTransparent ? "#6b7280" : "#9ca3af"}">${bgDisplayVal}</span></span>
+    </div>
+  `;
+
+  panel.innerHTML = `
+    <div class="dsl-info-header">
+      <span class="dsl-info-name" title="${nodeName}">${nodeNameDisplay}</span>
+      ${typeTag}
+    </div>
+    ${row1}
+    ${row2}
+    ${row3}
+  `;
+
+  document.body.appendChild(panel);
+  styleInfoPanel = panel;
+
+  // 点击任意值 → 打开编辑面板并定位到对应分区
+  panel.querySelectorAll("[data-open]").forEach(item => {
+    item.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const sectionKey = item.dataset.open;
+      closeStyleInfoPanel();
+
+      // 用当前选中的元素打开/更新编辑面板
+      const targetEl = selectedElement;
+      let menuEl = document.querySelector(".dsl-editor-menu");
+      if (!menuEl) {
+        const rect = targetEl.getBoundingClientRect();
+        showContextMenu(rect.left + rect.width / 2, rect.top + rect.height / 2, targetEl);
+        menuEl = document.querySelector(".dsl-editor-menu");
+      }
+
+      if (!menuEl) return;
+      const section = menuEl.querySelector(`[data-section="${sectionKey}"]`);
+      if (!section) return;
+      const body = section.querySelector(".dsl-section-body");
+      const arrow = section.querySelector(".dsl-section-arrow");
+      // 展开
+      body.style.display = "";
+      if (arrow) arrow.classList.remove("collapsed");
+      // 滚动到该分区
+      section.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  });
+
+  // 定位
+  requestAnimationFrame(() => {
+    const rect = panel.getBoundingClientRect();
+    const pw = rect.width, ph = rect.height;
+    const vw = window.innerWidth, vy = window.innerHeight;
+    let left = x + 12;
+    let top = y + 12;
+    if (left + pw > vw + window.scrollX) left = x - pw - 8;
+    if (top + ph > vy + window.scrollY) top = y - ph - 8;
+    if (left < 0) left = 4;
+    if (top < 0) top = 4;
+    panel.style.left = left + "px";
+    panel.style.top = top + "px";
+  });
 }
 
 // ============ Patch 管理 ============
@@ -509,7 +781,7 @@ function addPatch(nodeId, op, payload) {
     });
   }
   const saveBtn = document.querySelector(".dsl-btn-save");
-  if (saveBtn) saveBtn.textContent = `Save Patch (${pendingPatches.length})`;
+  if (saveBtn) saveBtn.innerHTML = `<span class="dsl-i18n-text" data-key="Save Patch">${t("Save Patch")}</span> (${pendingPatches.length})`;
 }
 
 // ============ 工具函数 ============
@@ -520,13 +792,71 @@ function getCurrentRadius(element) {
 }
 
 function rgbToHex(rgb) {
-  if (!rgb || rgb === "transparent") return "#000000";
+  if (!rgb || rgb === "transparent") return "transparent";
   if (rgb.startsWith("#")) return rgb.length === 4
     ? "#" + rgb[1]+rgb[1]+rgb[2]+rgb[2]+rgb[3]+rgb[3]
     : rgb;
-  const m = rgb.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-  if (!m) return "#000000";
-  return "#" + [m[1], m[2], m[3]].map(v => parseInt(v).toString(16).padStart(2, "0")).join("");
+  // rgba 格式，如 rgba(0, 0, 0, 0.04)
+  const rgbaM = rgb.match(/rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)/);
+  if (rgbaM) {
+    if (parseFloat(rgbaM[4]) <= 0.01) return "transparent";
+    return "#" + [rgbaM[1], rgbaM[2], rgbaM[3]].map(v => parseInt(v).toString(16).padStart(2, "0")).join("");
+  }
+  // rgb 格式
+  const rgbM = rgb.match(/rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/);
+  if (rgbM) {
+    return "#" + [rgbM[1], rgbM[2], rgbM[3]].map(v => parseInt(v).toString(16).padStart(2, "0")).join("");
+  }
+  return "#000000";
+}
+
+/**
+ * 获取元素自身的背景色，返回 { raw, hex, isTransparent }
+ * raw: 原始值 rgba(...) / #hex / transparent
+ * hex: 标准 hex 或 transparent
+ * isTransparent: 是否视为透明（alpha < 0.1 或值本身为 transparent）
+ */
+function getOwnBackgroundColor(element) {
+  const cs = getComputedStyle(element);
+  const styleAttr = element.getAttribute("style") || "";
+
+  let bgStyle = "";
+
+  // 1. 提取 background: rgba(...) / #hex / ...（到第一个分号停止）
+  const bgMatch = styleAttr.match(/background\s*:\s*([^;]*)/i);
+  if (bgMatch) bgStyle = bgMatch[1].trim();
+
+  // 2. 提取 background-color:
+  if (!bgStyle) {
+    const bgColorMatch = styleAttr.match(/background-color\s*:\s*([^;]*)/i);
+    if (bgColorMatch) bgStyle = bgColorMatch[1].trim();
+  }
+
+  if (bgStyle) {
+    const hex = rgbToHex(bgStyle);
+    const alphaMatch = bgStyle.match(/,\s*([\d.]+)\s*\)$/);
+    const alpha = alphaMatch ? parseFloat(alphaMatch[1]) : 1;
+    return {
+      raw: bgStyle,
+      hex: hex,
+      isTransparent: hex === "transparent" || (alphaMatch !== null && alpha < 0.01),
+    };
+  }
+
+  // 3. computed style fallback
+  const computedBg = cs.backgroundColor;
+  if (computedBg) {
+    const hex = rgbToHex(computedBg);
+    const alphaMatch = computedBg.match(/,\s*([\d.]+)\s*\)$/);
+    const alpha = alphaMatch ? parseFloat(alphaMatch[1]) : 1;
+    return {
+      raw: computedBg,
+      hex: hex,
+      isTransparent: hex === "transparent" || (alphaMatch !== null && alpha < 0.01),
+    };
+  }
+
+  return { raw: "transparent", hex: "transparent", isTransparent: true };
 }
 
 function showToast(msg) {
