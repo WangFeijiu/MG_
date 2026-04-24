@@ -33,14 +33,17 @@ const i18n = {
     B: "B",
     L: "L",
     R: "R",
-    "Save Patch": "Save Patch",
-    "Export JSON": "Export JSON",
+    "Save Patch": "Save",
+    "Export JSON": "Confirm & Rebuild",
+    "Open Result": "Open Result",
     NoChanges: "No changes",
     Saved: "Saved",
-    Exported: "Exported",
+    Exported: "Rebuilt",
     Export: "EN",
     CN: "CN",
     Info: "Info",
+    ServerError: "Server error",
+    ServerOffline: "Server offline",
     // Info panel labels
     r: "r", p: "p", w: "w", h: "h", gap: "gap",
     fs: "fs", fw: "fw", c: "c", bg: "bg",
@@ -69,14 +72,17 @@ const i18n = {
     B: "下",
     L: "左",
     R: "右",
-    "Save Patch": "保存 Patch",
-    "Export JSON": "导出 JSON",
+    "Save Patch": "保存",
+    "Export JSON": "确认更新",
+    "Open Result": "打开结果",
     NoChanges: "无改动",
     Saved: "已保存",
-    Exported: "已导出",
+    Exported: "已重建",
     Export: "英",
     CN: "中",
     Info: "信息",
+    ServerError: "服务器错误",
+    ServerOffline: "服务未启动",
     // Info panel labels
     r: "圆", p: "边", w: "宽", h: "高", gap: "间",
     fs: "字", fw: "重", c: "色", bg: "背",
@@ -594,7 +600,7 @@ function showContextMenu(x, y, element) {
     addPatch(nodeId, "update_style", { objectFit: objFitSel.value });
   });
 
-  // 保存 Patch
+  // 保存 Patch（下载到 output/patches/ 目录）
   const saveBtn = menu.querySelector(".dsl-btn-save");
   saveBtn.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -602,36 +608,59 @@ function showContextMenu(x, y, element) {
       showToast(t("NoChanges"));
       return;
     }
-    chrome.storage.local.get(["patches"], (result) => {
-      const existing = result.patches || [];
-      const all = [...existing, ...pendingPatches];
-      chrome.storage.local.set({ patches: all }, () => {
-        showToast(`${t("Saved")} ${pendingPatches.length}`);
-        pendingPatches = [];
-        saveBtn.innerHTML = `<span class="dsl-i18n-text" data-key="Save Patch">${t("Save Patch")}</span> (0)`;
-      });
-    });
-  });
 
-  // 导出 JSON
-  const exportBtn = menu.querySelector(".dsl-btn-export");
-  exportBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    chrome.storage.local.get(["patches"], (result) => {
-      const all = [...(result.patches || []), ...pendingPatches];
-      if (all.length === 0) {
-        showToast(t("NoChanges"));
-        return;
-      }
-      const blob = new Blob([JSON.stringify({ version: 1, patches: all }, null, 2)], { type: "application/json" });
+    // 每个 patch 保存为一个文件（UUID 命名避免并发冲突）
+    pendingPatches.forEach((patch) => {
+      const uuid = `${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 9)}`;
+      const filename = `${uuid}.json`;
+      const blob = new Blob([JSON.stringify(patch, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "mastergo-dsl-patch.json";
+      a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
-      showToast(`${t("Exported")} ${all.length}`);
     });
+
+    showToast(`${t("Saved")} ${pendingPatches.length}`);
+    pendingPatches = [];
+    saveBtn.innerHTML = `<span class="dsl-i18n-text" data-key="Save Patch">${t("Save Patch")}</span> (0)`;
+  });
+
+  // 确认更新 & 重建
+  const exportBtn = menu.querySelector(".dsl-btn-export");
+  exportBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    exportBtn.textContent = "...";
+    exportBtn.disabled = true;
+
+    fetch("http://localhost:3456/rebuild?cleanup=false", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          showToast(`${t("Exported")} ${data.mergedCount} ✅`);
+
+          // 询问是否打开
+          setTimeout(() => {
+            const open = confirm(currentLang === "zh" ? "是否在浏览器打开更新后的页面？" : "Open updated page in browser?");
+            if (open) {
+              window.open("preview-final.html", "_blank");
+            }
+          }, 300);
+        } else {
+          showToast(t("ServerError") + ": " + (data.error || ""));
+        }
+      })
+      .catch(() => {
+        showToast(t("ServerOffline") + " (npm run server)");
+      })
+      .finally(() => {
+        exportBtn.innerHTML = `<span class="dsl-i18n-text" data-key="Export JSON">${t("Export JSON")}</span>`;
+        exportBtn.disabled = false;
+      });
   });
 
   // 阻止菜单内的事件冒泡

@@ -8,6 +8,8 @@ import type { DSLNode } from "./machine-dsl.js";
 export type PatchDocument = {
   version: number;
   patches: Patch[];
+  mergedAt?: string;
+  mergedFiles?: string[];
 };
 
 export type Patch =

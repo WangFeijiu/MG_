@@ -414,10 +414,11 @@
 .dsl-btn-save:hover { background: #2563eb; }
 
 .dsl-btn-export {
-  background: #374151;
-  color: #9ca3af;
+  background: #2563eb;
+  color: #fff;
 }
-.dsl-btn-export:hover { background: #4b5563; color: #e0e0e0; }
+.dsl-btn-export:hover { background: #1d4ed8; }
+.dsl-btn-export:disabled { background: #374151; color: #6b7280; cursor: not-allowed; }
 
 /* ===== Toast 提示 ===== */
 

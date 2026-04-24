@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
+    "dev:rebuild": "tsx src/index.ts --rebuild",
+    "server": "tsx src/server.ts",
+    "dev:all": "npm run server & npm run dev",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

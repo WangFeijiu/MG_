@@ -1,12 +1,16 @@
 /**
  * MasterGo DSL 工具链主入口
  * 完整流程：MasterGo DSL → 机器 DSL → 预览 HTML → Patch → 最终代码
+ *
+ * 用法:
+ *   npm run dev           # 完整流程（从 MasterGo 获取 DSL）
+ *   npm run dev -- --rebuild  # 仅从本地文件重建 HTML（不重新获取 DSL）
  */
 
 import { config } from "dotenv";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 // 加载环境变量
@@ -19,6 +23,9 @@ import { applyPatches } from "./utils/patch.js";
 
 import type { PatchDocument } from "./types/patch.js";
 
+const args = process.argv.slice(2);
+const isRebuildOnly = args.includes("--rebuild");
+
 /**
  * 主函数
  */
@@ -30,6 +37,14 @@ async function main() {
   if (!existsSync(outputDir)) {
     mkdirSync(outputDir, { recursive: true });
   }
+
+  // 仅重建模式：从本地文件重建 HTML
+  if (isRebuildOnly) {
+    await rebuildOnly(outputDir);
+    return;
+  }
+
+  // ============ 完整流程 ============
 
   // Step 1: 从 MasterGo 获取原始 DSL
   console.log("📥 Step 1: 从 MasterGo 获取原始 DSL...");
@@ -60,23 +75,7 @@ async function main() {
 
   // Step 4: 应用 Patch（如果存在）
   console.log("🔧 Step 4: 检查并应用 Patch...");
-  const patchPath = join(outputDir, "patches.json");
-
-  let finalDSL = machineDSL;
-
-  if (existsSync(patchPath)) {
-    const patchDoc: PatchDocument = JSON.parse(readFileSync(patchPath, "utf-8"));
-    console.log(`   找到 ${patchDoc.patches.length} 个 patch`);
-
-    finalDSL = applyPatches(machineDSL, patchDoc);
-
-    // 保存应用 patch 后的 DSL
-    const finalDSLPath = join(outputDir, "final-machine-dsl.json");
-    writeFileSync(finalDSLPath, JSON.stringify(finalDSL, null, 2), "utf-8");
-    console.log(`✅ 应用 patch 后的机器 DSL 已保存: ${finalDSLPath}\n`);
-  } else {
-    console.log("   未找到 patch 文件，使用原始机器 DSL\n");
-  }
+  const finalDSL = await applyPatchesFromDir(outputDir, machineDSL);
 
   // Step 5: 生成最终 React 代码
   console.log("⚛️  Step 5: 生成 React 代码...");
@@ -87,16 +86,148 @@ async function main() {
   console.log(`✅ React 组件已保存: ${reactCodePath}\n`);
 
   // Step 6: 重新生成预览 HTML（包含 patch）
-  if (finalDSL !== machineDSL) {
-    console.log("🎨 Step 6: 重新生成包含 patch 的预览 HTML...");
-    const finalPreviewHTML = generatePreviewHTML(finalDSL);
-
-    const finalPreviewPath = join(outputDir, "preview-final.html");
-    writeFileSync(finalPreviewPath, finalPreviewHTML, "utf-8");
-    console.log(`✅ 最终预览 HTML 已保存: ${finalPreviewPath}\n`);
-  }
+  console.log("🎨 Step 6: 重新生成包含 patch 的预览 HTML...");
+  const finalPreviewHTML = generatePreviewHTML(finalDSL);
+  const finalPreviewPath = join(outputDir, "preview-final.html");
+  writeFileSync(finalPreviewPath, finalPreviewHTML, "utf-8");
+  console.log(`✅ 最终预览 HTML 已保存: ${finalPreviewPath}\n`);
 
   console.log("🎉 完成！所有文件已生成到 output 目录");
+}
+
+/**
+ * 仅重建模式：从本地文件重建 HTML（不重新获取 DSL）
+ */
+async function rebuildOnly(outputDir: string) {
+  console.log("🔄 重建模式：仅从本地文件重建 HTML\n");
+
+  const machineDSLPath = join(outputDir, "machine-dsl.json");
+  if (!existsSync(machineDSLPath)) {
+    console.error("❌ machine-dsl.json 不存在，请先运行 npm run dev");
+    process.exit(1);
+  }
+
+  console.log("📖 读取 machine-dsl.json...");
+  let dsl = JSON.parse(readFileSync(machineDSLPath, "utf-8"));
+
+  // 应用 patches
+  dsl = await applyPatchesFromDir(outputDir, dsl);
+
+  // 生成 HTML
+  console.log("🎨 生成 preview-final.html...");
+  const html = generatePreviewHTML(dsl);
+  const finalPath = join(outputDir, "preview-final.html");
+  writeFileSync(finalPath, html, "utf-8");
+  console.log(`✅ 已保存: ${finalPath}`);
+
+  // 也更新 preview.html（不含 patch）
+  console.log("🎨 生成 preview.html（不含 patch）...");
+  const previewHTML = generatePreviewHTML(dsl);
+  const previewPath = join(outputDir, "preview.html");
+  writeFileSync(previewPath, previewHTML, "utf-8");
+  console.log(`✅ 已保存: ${previewPath}\n`);
+
+  console.log("🎉 重建完成！");
+}
+
+/**
+ * 从 patches/ 目录读取并应用 patch
+ * 同时写入 patches.json（兼容旧流程）
+ */
+async function applyPatchesFromDir(outputDir: string, machineDSL: any): Promise<any> {
+  const patchesDir = join(outputDir, "patches");
+  const patchPath = join(outputDir, "patches.json");
+
+  // 读取已合并的文件记录
+  let alreadyMerged: Set<string> = new Set();
+  if (existsSync(patchPath)) {
+    try {
+      const doc = JSON.parse(readFileSync(patchPath, "utf-8"));
+      if (Array.isArray(doc.mergedFiles)) {
+        doc.mergedFiles.forEach((f: string) => alreadyMerged.add(f));
+      }
+    } catch {}
+  }
+
+  // 优先从 patches/ 目录读取新文件
+  if (existsSync(patchesDir)) {
+    const allFiles = readdirSync(patchesDir).filter((f) => f.endsWith(".json") && f !== "patches.json");
+    const newFiles = allFiles.filter((f) => !alreadyMerged.has(f));
+
+    if (newFiles.length > 0) {
+      console.log(`   📁 从 patches/ 目录读取 ${newFiles.length} 个新 patch 文件`);
+
+      const allPatches: any[] = [];
+      for (const file of newFiles) {
+        try {
+          const content = readFileSync(join(patchesDir, file), "utf-8");
+          const patch = JSON.parse(content);
+          if (Array.isArray(patch.patches)) {
+            allPatches.push(...patch.patches);
+          } else if (patch.targetNodeId) {
+            allPatches.push(patch);
+          }
+        } catch (e) {
+          console.warn(`   ⚠️  读取 ${file} 失败`);
+        }
+      }
+
+      // 按 targetNodeId + op 合并去重
+      const mergedMap = new Map<string, any>();
+      for (const p of allPatches) {
+        const key = `${p.targetNodeId}__${p.op}`;
+        if (mergedMap.has(key)) {
+          mergedMap.get(key).payload = { ...mergedMap.get(key).payload, ...p.payload };
+        } else {
+          mergedMap.set(key, { ...p });
+        }
+      }
+
+      const merged = Array.from(mergedMap.values());
+      console.log(`   合并后共 ${merged.length} 个有效 patch`);
+
+      // 追加到 patches.json
+      let existingPatches: any[] = [];
+      if (existsSync(patchPath)) {
+        try {
+          const doc = JSON.parse(readFileSync(patchPath, "utf-8"));
+          existingPatches = Array.isArray(doc.patches) ? doc.patches : [];
+        } catch {}
+      }
+
+      for (const p of merged) {
+        const key = `${p.targetNodeId}__${p.op}`;
+        const existing = existingPatches.find((ep) => `${ep.targetNodeId}__${ep.op}` === key);
+        if (existing) {
+          existing.payload = { ...existing.payload, ...p.payload };
+        } else {
+          existingPatches.push(p);
+        }
+      }
+
+      const allMergedFiles = new Set([...alreadyMerged, ...newFiles]);
+      const patchDoc: PatchDocument = {
+        version: 1,
+        mergedAt: new Date().toISOString(),
+        mergedFiles: Array.from(allMergedFiles),
+        patches: existingPatches,
+      };
+      writeFileSync(patchPath, JSON.stringify(patchDoc, null, 2), "utf-8");
+      console.log(`   已写入 patches.json`);
+
+      return applyPatches(machineDSL, patchDoc);
+    }
+  }
+
+  // 回退：直接从 patches.json 读取
+  if (existsSync(patchPath)) {
+    const patchDoc: PatchDocument = JSON.parse(readFileSync(patchPath, "utf-8"));
+    console.log(`   从 patches.json 读取 ${patchDoc.patches.length} 个 patch`);
+    return applyPatches(machineDSL, patchDoc);
+  }
+
+  console.log("   未找到 patch 文件");
+  return machineDSL;
 }
 
 /**
@@ -139,7 +270,8 @@ async function fetchMasterGoDSL() {
   await client.close();
 
   // 从 MCP 响应中提取文本内容并解析为 JSON
-  const textContent = res.content?.[0];
+  const content = res.content as Array<{ type: string; text: string }> | undefined;
+  const textContent = content?.[0];
   if (!textContent || textContent.type !== "text") {
     throw new Error("响应中没有文本内容");
   }
