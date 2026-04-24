@@ -77,16 +77,15 @@ async function main() {
   console.log("🔧 Step 4: 检查并应用 Patch...");
   const finalDSL = await applyPatchesFromDir(outputDir, machineDSL);
 
-  // Step 5: 生成最终 React 代码
-  console.log("⚛️  Step 5: 生成 React 代码...");
-  const reactCode = generateReactCode(finalDSL);
+  // Step 5: 生成最终 React 代码（跳过，用户需要时可通过命令行单独生成）
+  // console.log("⚛️  Step 5: 生成 React 代码...");
+  // const reactCode = generateReactCode(finalDSL);
+  // const reactCodePath = join(outputDir, `${finalDSL.page.name}.tsx`);
+  // writeFileSync(reactCodePath, reactCode, "utf-8");
+  // console.log(`✅ React 组件已保存: ${reactCodePath}\n`);
 
-  const reactCodePath = join(outputDir, `${finalDSL.page.name}.tsx`);
-  writeFileSync(reactCodePath, reactCode, "utf-8");
-  console.log(`✅ React 组件已保存: ${reactCodePath}\n`);
-
-  // Step 6: 重新生成预览 HTML（包含 patch）
-  console.log("🎨 Step 6: 重新生成包含 patch 的预览 HTML...");
+  // Step 5: 重新生成预览 HTML（包含 patch）
+  console.log("🎨 Step 5: 重新生成包含 patch 的预览 HTML...");
   const finalPreviewHTML = generatePreviewHTML(finalDSL);
   const finalPreviewPath = join(outputDir, "preview-final.html");
   writeFileSync(finalPreviewPath, finalPreviewHTML, "utf-8");

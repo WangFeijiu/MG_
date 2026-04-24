@@ -265,6 +265,27 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
+  // 保存单个 patch 文件到 patches/
+  if (req.method === "POST" && url.pathname === "/save-patch") {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      try {
+        const { filename, content } = JSON.parse(body);
+        if (!filename || !content) throw new Error("缺少 filename 或 content");
+        const filePath = join(PATCHES_DIR, filename);
+        writeFileSync(filePath, content, "utf-8");
+        console.log(`   💾 保存 patch: ${filename}`);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, filename }));
+      } catch (e: any) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
   // 列出历史 patch 文件
   if (req.method === "GET" && url.pathname === "/history") {
     if (!existsSync(HISTORY_DIR)) {
@@ -287,7 +308,8 @@ const server = http.createServer(handleRequest);
 server.listen(PORT, () => {
   console.log(`\n🚀 MasterGo DSL 重建服务已启动`);
   console.log(`   API: http://localhost:${PORT}`);
-  console.log(`   - GET  /status     查看状态（pending/history 数量）`);
-  console.log(`   - POST /rebuild    合并新 patch 并重建 HTML`);
-  console.log(`   - GET  /history   查看已合并的 patch 历史文件\n`);
+  console.log(`   - GET  /status       查看状态（pending/history 数量）`);
+  console.log(`   - POST /save-patch   保存 patch 文件到 patches/`);
+  console.log(`   - POST /rebuild      合并新 patch 并重建 HTML`);
+  console.log(`   - GET  /history     查看已合并的 patch 历史文件\n`);
 });

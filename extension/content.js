@@ -600,39 +600,55 @@ function showContextMenu(x, y, element) {
     addPatch(nodeId, "update_style", { objectFit: objFitSel.value });
   });
 
-  // 保存 Patch（下载到 output/patches/ 目录）
+  // 保存 Patch（直接写入 output/patches/ 目录）
   const saveBtn = menu.querySelector(".dsl-btn-save");
   saveBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     if (pendingPatches.length === 0) {
-      showToast(t("NoChanges"));
+      saveBtn.textContent = currentLang === "zh" ? "无改动！" : "No changes!";
+      setTimeout(() => {
+        saveBtn.innerHTML = `<span class="dsl-i18n-text" data-key="Save Patch">${t("Save Patch")}</span> (0)`;
+      }, 1500);
       return;
     }
 
-    // 每个 patch 保存为一个文件（时间戳_UUID，好找又不冲突）
-    pendingPatches.forEach((patch) => {
+    saveBtn.textContent = currentLang === "zh" ? "保存中..." : "Saving...";
+    saveBtn.disabled = true;
+
+    const promises = pendingPatches.map((patch) => {
       const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
       const uuid = Math.random().toString(36).substring(2, 9);
       const filename = `${ts}_${uuid}.json`;
-      const blob = new Blob([JSON.stringify(patch, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(url);
+      const content = JSON.stringify(patch, null, 2);
+      return fetch("http://localhost:3456/save-patch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename, content }),
+      }).then((r) => r.json());
     });
 
-    showToast(`${t("Saved")} ${pendingPatches.length}`);
-    pendingPatches = [];
-    saveBtn.innerHTML = `<span class="dsl-i18n-text" data-key="Save Patch">${t("Save Patch")}</span> (0)`;
+    Promise.all(promises)
+      .then((results) => {
+        const saved = results.filter((r) => r.success).length;
+        saveBtn.textContent = `${t("Saved")} ✅ ${saved}`;
+      })
+      .catch(() => {
+        saveBtn.textContent = currentLang === "zh" ? "离线 ❌" : "Offline ❌";
+      })
+      .finally(() => {
+        setTimeout(() => {
+          saveBtn.innerHTML = `<span class="dsl-i18n-text" data-key="Save Patch">${t("Save Patch")}</span> (0)`;
+          saveBtn.disabled = false;
+        }, 2000);
+        pendingPatches = [];
+      });
   });
 
   // 确认更新 & 重建
   const exportBtn = menu.querySelector(".dsl-btn-export");
   exportBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    exportBtn.textContent = "...";
+    exportBtn.textContent = currentLang === "zh" ? "重建中..." : "Rebuilding...";
     exportBtn.disabled = true;
 
     fetch("http://localhost:3456/rebuild?cleanup=false", {
@@ -642,25 +658,32 @@ function showContextMenu(x, y, element) {
       .then((res) => res.json())
       .then((data) => {
         if (data.success) {
-          showToast(`${t("Exported")} ${data.mergedCount} ✅`);
-
+          exportBtn.textContent = `${t("Exported")} ✅`;
           // 询问是否打开
           setTimeout(() => {
-            const open = confirm(currentLang === "zh" ? "是否在浏览器打开更新后的页面？" : "Open updated page in browser?");
+            const open = confirm(currentLang === "zh" ? "✅ 已重建！是否在浏览器打开 preview-final.html？" : "✅ Rebuilt! Open preview-final.html in browser?");
             if (open) {
               window.open("preview-final.html", "_blank");
             }
-          }, 300);
+          }, 200);
         } else {
-          showToast(t("ServerError") + ": " + (data.error || ""));
+          exportBtn.textContent = currentLang === "zh" ? "失败 ❌" : "Failed ❌";
+          alert(currentLang === "zh"
+            ? `❌ 重建失败：${data.error}\n\n请确认已运行 npm run server 和 npm run dev`
+            : `❌ Rebuild failed: ${data.error}\n\nPlease run: npm run server AND npm run dev`);
         }
       })
       .catch(() => {
-        showToast(t("ServerOffline") + " (npm run server)");
+        exportBtn.textContent = currentLang === "zh" ? "服务离线 ❌" : "Offline ❌";
+        alert(currentLang === "zh"
+          ? "❌ 重建服务未启动！\n\n请先运行：npm run server\n然后再运行：npm run dev"
+          : "❌ Rebuild server is not running!\n\nFirst run: npm run server\nThen run: npm run dev");
       })
       .finally(() => {
-        exportBtn.innerHTML = `<span class="dsl-i18n-text" data-key="Export JSON">${t("Export JSON")}</span>`;
-        exportBtn.disabled = false;
+        setTimeout(() => {
+          exportBtn.innerHTML = `<span class="dsl-i18n-text" data-key="Export JSON">${t("Export JSON")}</span>`;
+          exportBtn.disabled = false;
+        }, 3000);
       });
   });
 

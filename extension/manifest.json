@@ -3,7 +3,7 @@
   "name": "MasterGo DSL 编辑器",
   "version": "1.0.0",
   "description": "可视化编辑 MasterGo DSL 生成的页面：圆角、位置、尺寸、裁剪",
-  "permissions": ["activeTab", "scripting", "storage", "downloads"],
+  "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["http://localhost:3456/*"],
   "action": {
     "default_popup": "popup.html"
