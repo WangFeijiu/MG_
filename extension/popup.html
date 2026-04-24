@@ -125,6 +125,21 @@
       line-height: 1.5;
     }
     .info strong { color: #9ca3af; }
+    .react-btn {
+      width: 100%;
+      padding: 9px 0;
+      border: none;
+      border-radius: 6px;
+      background: #10b981;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+      margin-bottom: 12px;
+    }
+    .react-btn:hover { background: #059669; }
+    .react-btn:disabled { background: #374151; color: #6b7280; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -138,6 +153,10 @@
   </div>
 
   <h2 data-i18n="title">MasterGo DSL Editor</h2>
+
+  <button class="react-btn" id="reactBtn">
+    <span data-i18n="reactBtn">⚛️ Generate React</span>
+  </button>
 
   <div class="step" data-n="1">
     <div class="step-title" data-i18n="step1_title">Open preview.html</div>
@@ -153,7 +172,7 @@
   </div>
   <div class="step" data-n="4">
     <div class="step-title" data-i18n="step4_title">Save &amp; Export</div>
-    <div class="step-desc" data-i18n="step4_desc">Click "Save Patch" to store changes, or "Export JSON" to download the patch file.</div>
+    <div class="step-desc" data-i18n="step4_desc">Click "Save Patch" to store changes, or "Confirm & Rebuild" to rebuild HTML.</div>
   </div>
 
   <div class="divider"></div>

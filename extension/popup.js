@@ -14,8 +14,9 @@
       step3_title: "Adjust properties",
       step3_desc: "Modify border radius, padding, size, typography, color, etc. Changes apply in real-time.",
       step4_title: "Save & Export",
-      step4_desc: 'Click "Save Patch" to store changes, or "Export JSON" to download the patch file.',
+      step4_desc: 'Click "Save Patch" to store changes, or "Confirm & Rebuild" to rebuild HTML.',
       info: '<strong>Shortcuts:</strong> Press <kbd>Esc</kbd> to close the menu. Click anywhere outside to dismiss.',
+      reactBtn: "⚛️ Generate React",
     },
     zh: {
       title: "MasterGo DSL 编辑器",
@@ -26,8 +27,9 @@
       step3_title: "调整属性",
       step3_desc: "修改圆角、内边距、尺寸、排版、颜色等，实时预览效果。",
       step4_title: "保存和导出",
-      step4_desc: '点击"保存 Patch"存储修改，或"导出 JSON"下载补丁文件。',
+      step4_desc: '点击"保存"存储修改，或"确认更新"重建 HTML。',
       info: '<strong>快捷键：</strong>按 <kbd>Esc</kbd> 关闭菜单。点击面板外部也可关闭。',
+      reactBtn: "⚛️ 生成 React",
     },
   };
 
@@ -64,5 +66,47 @@
     lang = lang === "en" ? "zh" : "en";
     chrome.storage.local.set({ lang: lang });
     applyLang();
+  });
+
+  // Generate React button
+  var reactBtn = document.getElementById("reactBtn");
+  reactBtn.addEventListener("click", function () {
+    var btnText = reactBtn.querySelector("span");
+    reactBtn.disabled = true;
+    btnText.textContent = lang === "zh" ? "生成中..." : "Generating...";
+
+    fetch("http://localhost:3456/generate-react", { method: "POST" })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data.success) {
+          btnText.textContent = lang === "zh" ? "✅ 已生成！" : "✅ Done!";
+          setTimeout(function () {
+            var open = confirm(lang === "zh"
+              ? "✅ React 代码已生成到 react-app/src/App.tsx\n\n是否打开 react-app？"
+              : "✅ React code generated to react-app/src/App.tsx\n\nOpen react-app in terminal?");
+            if (open) {
+              // 提示用户在终端运行
+              alert(lang === "zh"
+                ? "请在终端运行：\n\ncd react-app\nnpm run dev"
+                : "Run in terminal:\n\ncd react-app\nnpm run dev");
+            }
+          }, 300);
+        } else {
+          btnText.textContent = lang === "zh" ? "❌ 失败" : "❌ Failed";
+          alert((lang === "zh" ? "❌ 生成失败：" : "❌ Failed: ") + (data.error || ""));
+        }
+      })
+      .catch(function () {
+        btnText.textContent = lang === "zh" ? "❌ 离线" : "❌ Offline";
+        alert(lang === "zh"
+          ? "❌ 重建服务未启动！\n\n请先运行：npm run server"
+          : "❌ Server not running!\n\nRun: npm run server");
+      })
+      .finally(function () {
+        setTimeout(function () {
+          btnText.textContent = i18n[lang].reactBtn;
+          reactBtn.disabled = false;
+        }, 3000);
+      });
   });
 })();

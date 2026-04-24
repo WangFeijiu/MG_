@@ -13,6 +13,7 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const OUTPUT_DIR = join(__dirname, "..", "output");
 const PATCHES_DIR = join(OUTPUT_DIR, "patches");
 const HISTORY_DIR = join(OUTPUT_DIR, "patches", "history");
+const REACT_APP_DIR = join(__dirname, "..", "react-app", "src");
 const PORT = 3456;
 
 // 确保目录存在
@@ -265,6 +266,48 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
+  // 生成 React 代码并写入 react-app/src/App.tsx
+  if (req.method === "POST" && url.pathname === "/generate-react") {
+    try {
+      const { generateReactCode } = await import("./generators/react-code.js");
+      const { applyPatches } = await import("./utils/patch.js");
+
+      const machineDSLPath = join(OUTPUT_DIR, "machine-dsl.json");
+      const patchPath = join(OUTPUT_DIR, "patches.json");
+
+      if (!existsSync(machineDSLPath)) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: "machine-dsl.json 不存在，请先运行 npm run dev" }));
+        return;
+      }
+
+      let dsl = JSON.parse(readFileSync(machineDSLPath, "utf-8"));
+
+      if (existsSync(patchPath)) {
+        const patchDoc = JSON.parse(readFileSync(patchPath, "utf-8"));
+        dsl = applyPatches(dsl, patchDoc);
+      }
+
+      const reactCode = generateReactCode(dsl);
+      const appPath = join(REACT_APP_DIR, "App.tsx");
+      writeFileSync(appPath, reactCode, "utf-8");
+
+      console.log(`\n⚛️  React 代码已生成: react-app/src/App.tsx`);
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        outputPath: appPath,
+        nodeCount: dsl.nodes?.length || 0,
+      }));
+    } catch (e: any) {
+      console.error("生成 React 失败:", e);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: e.message }));
+    }
+    return;
+  }
+
   // 保存单个 patch 文件到 patches/
   if (req.method === "POST" && url.pathname === "/save-patch") {
     let body = "";
@@ -308,8 +351,9 @@ const server = http.createServer(handleRequest);
 server.listen(PORT, () => {
   console.log(`\n🚀 MasterGo DSL 重建服务已启动`);
   console.log(`   API: http://localhost:${PORT}`);
-  console.log(`   - GET  /status       查看状态（pending/history 数量）`);
-  console.log(`   - POST /save-patch   保存 patch 文件到 patches/`);
-  console.log(`   - POST /rebuild      合并新 patch 并重建 HTML`);
-  console.log(`   - GET  /history     查看已合并的 patch 历史文件\n`);
+  console.log(`   - GET  /status           查看状态（pending/history 数量）`);
+  console.log(`   - POST /save-patch       保存 patch 文件到 patches/`);
+  console.log(`   - POST /rebuild          合并新 patch 并重建 HTML`);
+  console.log(`   - POST /generate-react    生成 React 代码到 react-app/`);
+  console.log(`   - GET  /history         查看已合并的 patch 历史文件\n`);
 });
