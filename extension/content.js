@@ -609,10 +609,11 @@ function showContextMenu(x, y, element) {
       return;
     }
 
-    // 每个 patch 保存为一个文件（UUID 命名避免并发冲突）
+    // 每个 patch 保存为一个文件（时间戳_UUID，好找又不冲突）
     pendingPatches.forEach((patch) => {
-      const uuid = `${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 9)}`;
-      const filename = `${uuid}.json`;
+      const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const uuid = Math.random().toString(36).substring(2, 9);
+      const filename = `${ts}_${uuid}.json`;
       const blob = new Blob([JSON.stringify(patch, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
