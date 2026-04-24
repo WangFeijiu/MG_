@@ -10,7 +10,7 @@
 import { config } from "dotenv";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 // 加载环境变量
@@ -26,6 +26,83 @@ import type { PatchDocument } from "./types/patch.js";
 const args = process.argv.slice(2);
 const isRebuildOnly = args.includes("--rebuild");
 
+// ============ .env 变更检测 ============
+
+/**
+ * 读取 .env 文件（不使用 dotenv，避免污染）
+ */
+function readEnvFile(): Record<string, string> {
+  const envPath = join(process.cwd(), ".env");
+  if (!existsSync(envPath)) return {};
+  const content = readFileSync(envPath, "utf-8");
+  const result: Record<string, string> = {};
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx > 0) {
+      result[trimmed.slice(0, eqIdx)] = trimmed.slice(eqIdx + 1).trim();
+    }
+  }
+  return result;
+}
+
+/**
+ * 保存 .env 快照到 output/.env.snapshot
+ */
+function saveEnvSnapshot(env: Record<string, string>, outputDir: string) {
+  const snapshot = {
+    MG_MCP_TOKEN: env["MG_MCP_TOKEN"] || "",
+    MG_FILE_ID: env["MG_FILE_ID"] || "",
+    MG_LAYER_ID: env["MG_LAYER_ID"] || "",
+    snapshotAt: new Date().toISOString(),
+  };
+  writeFileSync(join(outputDir, ".env.snapshot"), JSON.stringify(snapshot, null, 2), "utf-8");
+}
+
+/**
+ * 读取 .env 快照文件
+ */
+function readEnvSnapshot(outputDir: string): Record<string, string> | null {
+  const snapshotPath = join(outputDir, ".env.snapshot");
+  if (!existsSync(snapshotPath)) return null;
+  try {
+    return JSON.parse(readFileSync(snapshotPath, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 清空 output 目录（保留文件夹本身）
+ */
+function clearOutputDir(outputDir: string) {
+  if (!existsSync(outputDir)) return;
+  for (const entry of readdirSync(outputDir, { withFileTypes: true })) {
+    const path = join(outputDir, entry.name);
+    if (entry.isDirectory()) {
+      // 递归删除子目录的所有内容，保留 output/ 下的一级子目录本身
+      removeDirContents(path, true);
+    } else {
+      unlinkSync(path);
+    }
+  }
+  console.log("🗑️  output 目录内容已清空（目录结构保留）\n");
+}
+
+function removeDirContents(dir: string, preserveDir: boolean = false) {
+  if (!existsSync(dir)) return;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      removeDirContents(path, false);
+      if (!preserveDir) rmSync(path, { recursive: true, force: true });
+    } else {
+      unlinkSync(path);
+    }
+  }
+}
+
 /**
  * 主函数
  */
@@ -36,6 +113,30 @@ async function main() {
   const outputDir = "output";
   if (!existsSync(outputDir)) {
     mkdirSync(outputDir, { recursive: true });
+  }
+
+  // ============ .env 变更检测 ============
+  const currentEnv = readEnvFile();
+  const snapshot = readEnvSnapshot(outputDir);
+
+  if (snapshot) {
+    const changed =
+      snapshot.MG_MCP_TOKEN !== (currentEnv["MG_MCP_TOKEN"] || "") ||
+      snapshot.MG_FILE_ID !== (currentEnv["MG_FILE_ID"] || "") ||
+      snapshot.MG_LAYER_ID !== (currentEnv["MG_LAYER_ID"] || "");
+
+    if (changed) {
+      console.log("📝 检测到 .env 配置变更，清空 output 目录");
+      clearOutputDir(outputDir);
+      // 重建快照
+      if (!existsSync(outputDir)) mkdirSync(outputDir, { recursive: true });
+      saveEnvSnapshot(currentEnv, outputDir);
+    } else {
+      console.log("✅ .env 配置未变更，保留 output 目录");
+    }
+  } else {
+    // 首次运行，直接保存快照
+    saveEnvSnapshot(currentEnv, outputDir);
   }
 
   // 仅重建模式：从本地文件重建 HTML
@@ -84,6 +185,12 @@ async function main() {
   // writeFileSync(reactCodePath, reactCode, "utf-8");
   // console.log(`✅ React 组件已保存: ${reactCodePath}\n`);
 
+  // Step 4b: 保存应用 patch 后的 DSL
+  console.log("💾 Step 4b: 保存应用 patch 后的 DSL...");
+  const finalDSLPath = join(outputDir, "final-machine-dsl.json");
+  writeFileSync(finalDSLPath, JSON.stringify(finalDSL, null, 2), "utf-8");
+  console.log(`✅ 应用 patch 后的 DSL 已保存: ${finalDSLPath}\n`);
+
   // Step 5: 重新生成预览 HTML（包含 patch）
   console.log("🎨 Step 5: 重新生成包含 patch 的预览 HTML...");
   const finalPreviewHTML = generatePreviewHTML(finalDSL);
@@ -111,6 +218,11 @@ async function rebuildOnly(outputDir: string) {
 
   // 应用 patches
   dsl = await applyPatchesFromDir(outputDir, dsl);
+
+  // 保存应用 patch 后的 DSL
+  const finalDSLPath = join(outputDir, "final-machine-dsl.json");
+  writeFileSync(finalDSLPath, JSON.stringify(dsl, null, 2), "utf-8");
+  console.log(`✅ 应用 patch 后的 DSL 已保存: ${finalDSLPath}`);
 
   // 生成 HTML
   console.log("🎨 生成 preview-final.html...");

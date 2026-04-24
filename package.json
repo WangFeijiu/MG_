@@ -8,6 +8,7 @@
     "dev:rebuild": "tsx src/index.ts --rebuild",
     "server": "tsx src/server.ts",
     "dev:all": "npm run server & npm run dev",
+    "dev:full": "concurrently --names \"server,dev,react\" --prefix-colors \"cyan,magenta,green\" \"npm run server\" \"npm run dev\" \"cd react-app && npm run dev\"",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
+    "concurrently": "^9.2.1",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2"
   }

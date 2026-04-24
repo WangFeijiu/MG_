@@ -140,6 +140,220 @@
     }
     .react-btn:hover { background: #059669; }
     .react-btn:disabled { background: #374151; color: #6b7280; cursor: not-allowed; }
+    .reset-btn {
+      width: 100%;
+      padding: 9px 0;
+      border: 1px solid #3b3b4f;
+      border-radius: 6px;
+      background: transparent;
+      color: #8b8b9e;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      margin-bottom: 12px;
+    }
+    .reset-btn:hover { background: #2a2a3d; color: #e0e0e0; border-color: #4b5563; }
+    .reset-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Env config section */
+    .env-section {
+      margin: 12px 0;
+      border: 1px solid #3b3b4f;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .env-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      background: #252536;
+      cursor: pointer;
+      user-select: none;
+    }
+    .env-header:hover { background: #2a2a3d; }
+    .env-header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #9ca3af;
+    }
+    .env-header-left .icon { font-size: 14px; }
+    .env-toggle {
+      font-size: 10px;
+      color: #6b7280;
+      transition: transform 0.2s;
+    }
+    .env-section.open .env-toggle { transform: rotate(90deg); }
+    .env-body {
+      display: none;
+      padding: 12px;
+      background: #1a1a2a;
+    }
+    .env-section.open .env-body { display: block; }
+    .env-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .env-row:last-child { margin-bottom: 0; }
+    .env-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #6b7280;
+      width: 90px;
+      flex-shrink: 0;
+    }
+    .env-input {
+      flex: 1;
+      background: #252536;
+      border: 1px solid #3b3b4f;
+      border-radius: 4px;
+      padding: 5px 8px;
+      font-size: 11px;
+      color: #e0e0e0;
+      font-family: monospace;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .env-input:focus { border-color: #3b82f6; }
+    .env-input::placeholder { color: #4b5563; }
+    .env-save-btn {
+      width: 100%;
+      margin-top: 10px;
+      padding: 7px 0;
+      border: none;
+      border-radius: 5px;
+      background: #3b82f6;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .env-save-btn:hover { background: #2563eb; }
+    .env-save-btn:disabled { background: #374151; color: #6b7280; cursor: not-allowed; }
+    .env-hint {
+      margin-top: 8px;
+      font-size: 10px;
+      color: #4b5563;
+      line-height: 1.4;
+    }
+    .env-hint.warn { color: #f59e0b; }
+
+    /* Generator config section */
+    .gen-section {
+      margin: 12px 0;
+      border: 1px solid #3b3b4f;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .gen-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      background: #252536;
+      cursor: pointer;
+      user-select: none;
+    }
+    .gen-header:hover { background: #2a2a3d; }
+    .gen-header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #9ca3af;
+    }
+    .gen-header-left .icon { font-size: 14px; }
+    .gen-toggle {
+      font-size: 10px;
+      color: #6b7280;
+      transition: transform 0.2s;
+    }
+    .gen-section.open .gen-toggle { transform: rotate(90deg); }
+    .gen-body {
+      display: none;
+      padding: 12px;
+      background: #1a1a2a;
+    }
+    .gen-section.open .gen-body { display: block; }
+
+    /* Radio group */
+    .gen-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #6b7280;
+      margin-bottom: 6px;
+      display: block;
+    }
+    .gen-radio-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    .gen-radio-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: #252536;
+      border: 1px solid #3b3b4f;
+      cursor: pointer;
+      font-size: 11px;
+      color: #9ca3af;
+      transition: all 0.15s;
+    }
+    .gen-radio-item:hover { border-color: #4b5563; }
+    .gen-radio-item input { display: none; }
+    .gen-radio-item.selected {
+      background: #3b82f6;
+      border-color: #3b82f6;
+      color: #fff;
+    }
+    .gen-input {
+      width: 100%;
+      background: #252536;
+      border: 1px solid #3b3b4f;
+      border-radius: 4px;
+      padding: 5px 8px;
+      font-size: 11px;
+      color: #e0e0e0;
+      font-family: monospace;
+      outline: none;
+      transition: border-color 0.15s;
+      margin-bottom: 10px;
+    }
+    .gen-input:focus { border-color: #3b82f6; }
+    .gen-input::placeholder { color: #4b5563; }
+    .gen-save-btn {
+      width: 100%;
+      margin-top: 4px;
+      padding: 8px 0;
+      border: none;
+      border-radius: 5px;
+      background: #10b981;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .gen-save-btn:hover { background: #059669; }
+    .gen-save-btn:disabled { background: #374151; color: #6b7280; cursor: not-allowed; }
+    .gen-hint {
+      margin-top: 8px;
+      font-size: 10px;
+      color: #4b5563;
+      line-height: 1.4;
+    }
   </style>
 </head>
 <body>
@@ -157,6 +371,77 @@
   <button class="react-btn" id="reactBtn">
     <span data-i18n="reactBtn">⚛️ Generate React</span>
   </button>
+
+  <button class="reset-btn" id="resetBtn">
+    <span data-i18n="resetBtn">🗑️ Clear Output</span>
+  </button>
+
+  <div class="env-section" id="envSection">
+    <div class="env-header" id="envHeader">
+      <div class="env-header-left">
+        <span class="icon">⚙️</span>
+        <span data-i18n="envTitle">.env Config</span>
+      </div>
+      <span class="env-toggle">▶</span>
+    </div>
+    <div class="env-body">
+      <div class="env-row">
+        <label class="env-label">MG_MCP_TOKEN</label>
+        <input type="password" class="env-input" id="envToken" placeholder="mg_xxxxxxxxxxxx" data-i18n-placeholder="envTokenPlaceholder">
+      </div>
+      <div class="env-row env-url-row">
+        <label class="env-label">URL</label>
+        <input type="text" class="env-input" id="envUrl" placeholder="https://mastergo.com/file/...?layer_id=..." data-i18n-placeholder="envUrlPlaceholder">
+      </div>
+      <button class="env-save-btn" id="envSaveBtn" data-i18n="envSaveBtn">Save &amp; Run</button>
+      <div class="env-hint warn" id="envHint" data-i18n="envHint">
+        ⚠️ Saving will clear output and re-run
+      </div>
+    </div>
+  </div>
+
+  <!-- Generator Config Section -->
+  <div class="gen-section" id="genSection">
+    <div class="gen-header" id="genHeader">
+      <div class="gen-header-left">
+        <span class="icon">🎨</span>
+        <span data-i18n="genTitle">Generator Config</span>
+      </div>
+      <span class="gen-toggle">▶</span>
+    </div>
+    <div class="gen-body">
+      <label class="gen-label" data-i18n="genStyleLabel">Style Mode</label>
+      <div class="gen-radio-group" id="styleModeGroup">
+        <label class="gen-radio-item selected" data-value="inline">
+          <input type="radio" name="styleMode" value="inline" checked>
+          <span>Inline</span>
+        </label>
+        <label class="gen-radio-item" data-value="tailwind">
+          <input type="radio" name="styleMode" value="tailwind">
+          <span>Tailwind</span>
+        </label>
+        <label class="gen-radio-item" data-value="module-scss">
+          <input type="radio" name="styleMode" value="module-scss">
+          <span>SCSS</span>
+        </label>
+        <label class="gen-radio-item" data-value="plain-css">
+          <input type="radio" name="styleMode" value="plain-css">
+          <span>CSS</span>
+        </label>
+      </div>
+
+      <label class="gen-label" data-i18n="genComponentsLabel">Component Dirs</label>
+      <input type="text" class="gen-input" id="genComponents" placeholder="./components, @mui/material, ./ui-lib" data-i18n-placeholder="genComponentsPlaceholder">
+
+      <label class="gen-label" data-i18n="genCodeStyleLabel">Code Style File</label>
+      <input type="text" class="gen-input" id="genCodeStyle" placeholder=".eslintrc.json, .prettierrc" data-i18n-placeholder="genCodeStylePlaceholder">
+
+      <button class="gen-save-btn" id="genSaveBtn" data-i18n="genSaveBtn">⚙️ Apply & Generate</button>
+      <div class="gen-hint" id="genHint" data-i18n="genHint">
+        All options are optional. Default: inline styles.
+      </div>
+    </div>
+  </div>
 
   <div class="step" data-n="1">
     <div class="step-title" data-i18n="step1_title">Open preview.html</div>
