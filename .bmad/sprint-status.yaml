@@ -10,20 +10,22 @@ sprints:
     end_date: "2026-05-02"
     capacity_points: 15
     committed_points: 15
-    completed_points: 0
-    status: "not_started"
+    completed_points: 7
+    status: "in_progress"
     goal: "完成核心架构和基础组件"
     stories:
       - story_id: "STORY-000"
         title: "项目初始化和开发环境"
         points: 2
-        status: "not_started"
-        assigned_to: null
+        status: "completed"
+        assigned_to: "Developer"
+        completed_at: "2026-04-25"
       - story_id: "STORY-001"
         title: "实现 DSL 解析器"
         points: 5
-        status: "not_started"
-        assigned_to: null
+        status: "completed"
+        assigned_to: "Developer"
+        completed_at: "2026-04-25"
       - story_id: "STORY-002"
         title: "实现 Design Tokens 提取器"
         points: 3
