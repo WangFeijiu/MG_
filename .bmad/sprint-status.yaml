@@ -10,7 +10,7 @@ sprints:
     end_date: "2026-05-02"
     capacity_points: 15
     committed_points: 15
-    completed_points: 7
+    completed_points: 10
     status: "in_progress"
     goal: "完成核心架构和基础组件"
     stories:
@@ -29,8 +29,9 @@ sprints:
       - story_id: "STORY-002"
         title: "实现 Design Tokens 提取器"
         points: 3
-        status: "not_started"
-        assigned_to: null
+        status: "completed"
+        assigned_to: "Developer"
+        completed_at: "2026-04-25"
       - story_id: "STORY-003"
         title: "实现 Section 识别算法"
         points: 5
