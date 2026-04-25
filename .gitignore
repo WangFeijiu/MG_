@@ -27,3 +27,19 @@ Thumbs.db
 # TypeScript
 *.tsbuildinfo
 nul
+
+# Temporary files
+temp/
+*.tmp
+
+# Test coverage
+coverage/
+
+# Old source (to be migrated)
+src/
+examples/
+extension/
+react-app/
+_bmad/
+_bmad-output/
+

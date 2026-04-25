@@ -1,0 +1,28 @@
+project_name: "DSL2React"
+project_type: "other"
+project_level: 2
+output_folder: "docs"
+
+bmm:
+  workflow_status_file: "docs/bmm-workflow-status.yaml"
+  sprint_status_file: "docs/sprint-status.yaml"
+
+paths:
+  docs: "docs"
+  stories: "docs/stories"
+  tests: "tests"
+  bmad: "bmad"
+
+templates:
+  story: "story-template.md"
+  prd: "prd-template.md"
+  tech_spec: "tech-spec-template.md"
+  architecture: "architecture-template.md"
+
+agents:
+  product_manager: "PM"
+  system_architect: "Architect"
+  scrum_master: "SM"
+  developer: "Dev"
+  business_analyst: "BA"
+  creative_intelligence: "CI"

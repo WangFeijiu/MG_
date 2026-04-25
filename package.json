@@ -1,34 +1,56 @@
 {
-  "name": "mastergo-dsl-toolchain",
-  "version": "1.0.0",
-  "description": "MasterGo DSL to Code Toolchain - High fidelity page generation with visual editing",
+  "name": "dsl2react",
+  "version": "2.0.0",
+  "description": "DSL2React - MasterGo DSL to React code generation with incremental updates",
   "type": "module",
   "scripts": {
-    "dev": "tsx src/index.ts",
-    "dev:rebuild": "tsx src/index.ts --rebuild",
-    "server": "tsx src/server.ts",
-    "dev:all": "npm run server & npm run dev",
-    "dev:full": "concurrently --names \"server,dev,react\" --prefix-colors \"cyan,magenta,green\" \"npm run server\" \"npm run dev\" \"cd react-app && npm run dev\"",
-    "build": "tsc",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev:server": "tsx watch server/index.ts",
+    "dev:client": "cd client && vite",
+    "dev": "concurrently --names \"server,client\" --prefix-colors \"cyan,magenta\" \"npm run dev:server\" \"npm run dev:client\"",
+    "build:server": "tsc -p tsconfig.server.json",
+    "build:client": "cd client && vite build",
+    "build": "npm run build:server && npm run build:client",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage",
+    "test:ui": "vitest --ui",
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,json,md}\"",
+    "start": "node dist/server/index.js"
   },
   "keywords": [
-    "mastergo",
     "dsl",
+    "react",
     "code-generation",
-    "react"
+    "mastergo",
+    "llm"
   ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@mastergo/magic-mcp": "^0.1.6",
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "dotenv": "^17.4.2"
+    "@anthropic-ai/sdk": "^0.32.1",
+    "express": "^4.21.2",
+    "ws": "^8.18.0",
+    "dotenv": "^17.4.2",
+    "cors": "^2.8.5"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0",
+    "@types/node": "^22.10.5",
+    "@types/express": "^5.0.0",
+    "@types/ws": "^8.5.13",
+    "@types/cors": "^2.8.17",
+    "@typescript-eslint/eslint-plugin": "^8.19.1",
+    "@typescript-eslint/parser": "^8.19.1",
+    "@vitest/coverage-v8": "^2.1.8",
+    "@vitest/ui": "^2.1.8",
     "concurrently": "^9.2.1",
+    "eslint": "^9.18.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.4.2",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.2"
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vitest": "^2.1.8"
   }
 }

@@ -15,7 +15,10 @@
       "Bash(dir:*)",
       "Bash(git init:*)",
       "Bash(git branch:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(pnpm install *)",
+      "Bash(pnpm test *)",
+      "Bash(pnpm --version)"
     ]
   }
 }

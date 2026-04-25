@@ -1,0 +1,134 @@
+version: "6.0.0"
+project_name: "DSL2React"
+project_level: 2
+current_sprint: 1
+sprint_plan_path: "docs/sprint-plan-DSL2React-2026-04-25.md"
+
+sprints:
+  - sprint_number: 1
+    start_date: "2026-04-25"
+    end_date: "2026-05-02"
+    capacity_points: 15
+    committed_points: 15
+    completed_points: 0
+    status: "not_started"
+    goal: "完成核心架构和基础组件"
+    stories:
+      - story_id: "STORY-000"
+        title: "项目初始化和开发环境"
+        points: 2
+        status: "not_started"
+        assigned_to: null
+      - story_id: "STORY-001"
+        title: "实现 DSL 解析器"
+        points: 5
+        status: "not_started"
+        assigned_to: null
+      - story_id: "STORY-002"
+        title: "实现 Design Tokens 提取器"
+        points: 3
+        status: "not_started"
+        assigned_to: null
+      - story_id: "STORY-003"
+        title: "实现 Section 识别算法"
+        points: 5
+        status: "not_started"
+        assigned_to: null
+
+  - sprint_number: 2
+    start_date: "2026-05-02"
+    end_date: "2026-05-09"
+    capacity_points: 15
+    committed_points: 13
+    completed_points: 0
+    status: "not_started"
+    goal: "完成生成和组装功能"
+    stories:
+      - story_id: "STORY-004"
+        title: "实现依赖图管理"
+        points: 3
+        status: "not_started"
+        assigned_to: null
+      - story_id: "STORY-005"
+        title: "实现内存存储"
+        points: 2
+        status: "not_started"
+        assigned_to: null
+      - story_id: "STORY-006"
+        title: "实现 LLM 生成器"
+        points: 5
+        status: "not_started"
+        assigned_to: null
+      - story_id: "STORY-007"
+        title: "实现代码组装器"
+        points: 3
+        status: "not_started"
+        assigned_to: null
+
+  - sprint_number: 3
+    start_date: "2026-05-09"
+    end_date: "2026-05-16"
+    capacity_points: 15
+    committed_points: 16
+    completed_points: 0
+    status: "not_started"
+    goal: "完成质量验证和修正"
+    stories:
+      - story_id: "STORY-008"
+        title: "实现截图对比功能"
+        points: 5
+        status: "not_started"
+        assigned_to: null
+      - story_id: "STORY-009"
+        title: "实现智能容差算法"
+        points: 3
+        status: "not_started"
+        assigned_to: null
+      - story_id: "STORY-010"
+        title: "实现自动修正引擎"
+        points: 5
+        status: "not_started"
+        assigned_to: null
+      - story_id: "STORY-012"
+        title: "实现核心 API 端点"
+        points: 3
+        status: "not_started"
+        assigned_to: null
+
+  - sprint_number: 4
+    start_date: "2026-05-16"
+    end_date: "2026-05-23"
+    capacity_points: 15
+    committed_points: 16
+    completed_points: 0
+    status: "not_started"
+    goal: "完成增量更新和前端界面"
+    stories:
+      - story_id: "STORY-011"
+        title: "实现增量更新 API"
+        points: 5
+        status: "not_started"
+        assigned_to: null
+      - story_id: "STORY-013"
+        title: "实现前端界面"
+        points: 8
+        status: "not_started"
+        assigned_to: null
+      - story_id: "STORY-014"
+        title: "性能测试和优化"
+        points: 3
+        status: "not_started"
+        assigned_to: null
+
+velocity:
+  sprint_1: null
+  sprint_2: null
+  sprint_3: null
+  sprint_4: null
+  rolling_average: null
+
+team:
+  size: 1
+  sprint_length_weeks: 1
+  capacity_per_sprint: 15
+  experience_level: "senior"
