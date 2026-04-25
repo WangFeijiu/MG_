@@ -36,7 +36,6 @@ temp/
 coverage/
 
 # Old source (to be migrated)
-src/
 examples/
 extension/
 react-app/

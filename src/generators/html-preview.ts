@@ -1,13 +1,17 @@
 /**
- * 机器 DSL 到预览 HTML 的生成器
- * 生成带有 data-dsl-id 的 HTML 用于浏览器插件编辑
+ * 机器 DSL 到预览 HTML 的生成器（v2 优化版）
  *
- * 核心原则：
- * - flex 容器的子节点不设 left/top，由 flex 布局自动排列
- * - 只有 absolute 节点才用 position: relative + left/top
+ * 优化点：
+ * - Design Token → CSS 变量（:root 定义）
+ * - CSS 类去重（相同样式共享类名）
+ * - Section 分块（data-section-id）
+ * - 保持 data-dsl-id 等插件编辑属性
  */
 
 import type { MachineDSL, DSLNode } from "../types/machine-dsl.js";
+import { extractDesignTokens, generateCSSTokenBlock, type DesignTokens } from "./token-extractor.js";
+import { buildCSSClasses, generateCSSClassBlock, type CSSClassMap } from "./css-optimizer.js";
+import { splitSections, type Section } from "./section-splitter.js";
 
 export function generatePreviewHTML(dsl: MachineDSL): string {
   const { page, nodes } = dsl;
@@ -18,7 +22,27 @@ export function generatePreviewHTML(dsl: MachineDSL): string {
   const nodeMap = new Map<string, DSLNode>();
   for (const node of nodes) nodeMap.set(node.id, node);
 
-  const bodyHTML = renderNode(rootNode, nodeMap);
+  // Step 1: 提取 Design Tokens
+  const tokens = extractDesignTokens(dsl);
+
+  // Step 2: 构建 CSS 类
+  const classMap = buildCSSClasses(nodes, nodeMap, tokens);
+
+  // Step 3: 识别 Sections
+  const sections = splitSections(dsl);
+  const sectionMap = new Map<string, Section>();
+  for (const sec of sections) {
+    for (const nid of sec.nodeIds) {
+      sectionMap.set(nid, sec);
+    }
+  }
+
+  // Step 4: 生成 CSS 块
+  const tokenCSS = generateCSSTokenBlock(tokens);
+  const classCSS = generateCSSClassBlock(classMap);
+
+  // Step 5: 生成 HTML body
+  const bodyHTML = renderNode(rootNode, nodeMap, classMap, sectionMap);
 
   return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -39,6 +63,12 @@ export function generatePreviewHTML(dsl: MachineDSL): string {
     .dsl-node { transition: outline 0.15s ease; }
     .dsl-node:hover { outline: 2px solid rgba(59, 130, 246, 0.5); outline-offset: 2px; }
     .dsl-node.selected { outline: 2px solid rgb(59, 130, 246); outline-offset: 2px; }
+
+    /* Design Tokens */
+    ${tokenCSS}
+
+    /* CSS Classes */
+    ${classCSS}
   </style>
 </head>
 <body>
@@ -47,23 +77,23 @@ ${bodyHTML}
 </html>`;
 }
 
-function renderNode(node: DSLNode, nodeMap: Map<string, DSLNode>): string {
+function renderNode(
+  node: DSLNode,
+  nodeMap: Map<string, DSLNode>,
+  classMap: CSSClassMap,
+  sectionMap: Map<string, Section>,
+): string {
   const tag = getHTMLTag(node);
-  const attrs = generateAttributes(node);
-  const css = generateCSS(node, nodeMap);
-  const styleAttr = css ? ` style="${css}"` : "";
+  const attrs = generateAttributes(node, classMap, sectionMap);
 
   let content = "";
 
-  // 图片节点：用 img 标签渲染，父容器不设 background-image，避免双层叠加
-  // 父容器只负责 border-radius + overflow + 尺寸，img 自己用 object-fit 填充
+  // 图片节点
   if (node.type === "image" && node.content?.src) {
     const objectFit = node.style.objectFit || "cover";
     const onerror = `var p=this.parentElement;p.style.background='linear-gradient(135deg,#e8e8e8 25%,#d0d0d0 50%,#e8e8e8 75%)';this.style.display='none'`;
-    // img 填满父容器
     content = `<img src="${escapeAttr(node.content.src)}" alt="${escapeAttr(node.name || '')}" style="display:block; width:100%; height:100%; object-fit:${objectFit};" onerror="${onerror}" />`;
-    // 图片节点本身不加 background-image CSS（img 标签负责渲染）
-    return `<${tag}${attrs}${styleAttr}>${content}</${tag}>`;
+    return `<${tag}${attrs}>${content}</${tag}>`;
   }
 
   // 文本内容
@@ -76,16 +106,16 @@ function renderNode(node: DSLNode, nodeMap: Map<string, DSLNode>): string {
     const childrenHTML = node.children
       .map(id => nodeMap.get(id))
       .filter(Boolean)
-      .map(child => renderNode(child!, nodeMap))
+      .map(child => renderNode(child!, nodeMap, classMap, sectionMap))
       .join("\n");
     content += (content ? "\n" : "") + childrenHTML;
   }
 
   if (!content) {
-    return `<${tag}${attrs}${styleAttr} />`;
+    return `<${tag}${attrs} />`;
   }
 
-  return `<${tag}${attrs}${styleAttr}>${content}</${tag}>`;
+  return `<${tag}${attrs}>${content}</${tag}>`;
 }
 
 function getHTMLTag(node: DSLNode): string {
@@ -96,145 +126,44 @@ function getHTMLTag(node: DSLNode): string {
   }
 }
 
-function generateAttributes(node: DSLNode): string {
-  const parts = [
-    `class="dsl-node dsl-${node.type}"`,
-    `data-dsl-id="${node.id}"`,
-    `data-dsl-type="${node.type}"`,
-  ];
-  if (node.name) parts.push(`data-dsl-name="${escapeAttr(node.name)}"`);
-  return " " + parts.join(" ");
-}
-
 /**
- * 生成 CSS 字符串 — 核心逻辑
- * 关键原则：
- * - flex 容器优先用 min-height，content-driven 高度
- * - flex 子节点不需要 position/left/top
- * - 行布局默认 justify-content:center
- * - 文字节点不设 position
+ * 生成节点属性 — 有 CSS 类用类，否则用内联 style
  */
-function generateCSS(node: DSLNode, nodeMap: Map<string, DSLNode>): string {
-  const s: string[] = [];
+function generateAttributes(
+  node: DSLNode,
+  classMap: CSSClassMap,
+  sectionMap: Map<string, Section>,
+): string {
+  const classParts = ["dsl-node", `dsl-${node.type}`];
 
-  const isFlexContainer = node.layout.mode === "flex";
-  const isRowFlex = isFlexContainer && node.layout.direction === "row";
-  const isColFlex = isFlexContainer && node.layout.direction === "column";
-  const hasChildren = node.children.length > 0;
-  const parentNode = node.parentId ? nodeMap.get(node.parentId) : null;
-  const parentIsFlex = parentNode?.layout.mode === "flex";
-  const isImageType = node.type === "image";
-
-  // ========== 布局模式 ==========
-  if (isFlexContainer) {
-    s.push("display:flex");
-    if (node.layout.direction) s.push(`flex-direction:${node.layout.direction}`);
-
-    // 行布局默认居中（如果没设置 justify）
-    if (isRowFlex) {
-      s.push(`justify-content:${node.layout.justify || "center"}`);
-    } else if (node.layout.justify) {
-      s.push(`justify-content:${node.layout.justify}`);
-    }
-
-    if (node.layout.align) s.push(`align-items:${node.layout.align}`);
-    if (node.layout.wrap) s.push(`flex-wrap:${node.layout.wrap}`);
-    if (node.layout.gap !== undefined) s.push(`gap:${node.layout.gap}px`);
-  }
-  // 只有不在 flex 父节点内的 absolute 节点才用 position:left/top
-  // 文字节点永远不设 position
-  else if (!parentIsFlex && node.type !== "text") {
-    s.push("position:relative");
-    if (node.layout.x !== undefined) s.push(`left:${node.layout.x}px`);
-    if (node.layout.y !== undefined) s.push(`top:${node.layout.y}px`);
+  // 添加优化后的 CSS 类
+  const extraClasses = classMap.nodeClasses.get(node.id);
+  if (extraClasses) {
+    classParts.push(...extraClasses);
   }
 
-  // ========== 尺寸 ==========
-  // flex 容器且有子节点 → 用 max-width + min-height，让内容决定高度
-  // 纯文字/图片容器或有固定尺寸的 → 用 width/height
-  const hasFixedW = node.layout.width !== undefined && node.layout.width !== "auto";
-  const hasFixedH = node.layout.height !== undefined && node.layout.height !== "auto";
+  const parts = [
+    `class="${classParts.join(" ")}"`,
+  ];
 
-  if (isFlexContainer && hasChildren && hasFixedW) {
-    // flex 容器用 max-width，避免在小屏幕上溢出
-    s.push(`max-width:${formatSize(node.layout.width)}`);
-    // 有背景或明确高度的容器用 min-height
-    if (node.style.background || hasFixedH) {
-      s.push(`min-height:${formatSize(node.layout.height)}`);
-    } else {
-      // 没有背景且没固定高度的 flex 容器，高度由内容决定，不设置 height
-    }
-  } else if (isImageType) {
-    // 图片节点用固定尺寸
-    if (hasFixedW) s.push(`width:${formatSize(node.layout.width)}`);
-    if (hasFixedH) s.push(`height:${formatSize(node.layout.height)}`);
-  } else if (hasFixedW) {
-    s.push(`width:${formatSize(node.layout.width)}`);
+  // 内联样式（非去重节点）
+  const inlineStyle = classMap.nodeInlineStyles.get(node.id);
+  if (inlineStyle) {
+    parts.push(`style="${inlineStyle}"`);
   }
 
-  // flexShrink
-  if (node.layout.flexShrink !== undefined) s.push(`flex-shrink:${node.layout.flexShrink}`);
+  parts.push(`data-dsl-id="${node.id}"`);
+  parts.push(`data-dsl-type="${node.type}"`);
+  if (node.name) parts.push(`data-dsl-name="${escapeAttr(node.name)}"`);
 
-  // ========== 背景 ==========
-  // 图片类型节点（type=image）用 <img> 渲染，不设 background-image
-  if (node.type !== "image" && node.style.backgroundImage) {
-    s.push(`background-image:url(${node.style.backgroundImage})`);
-    s.push("background-size:cover");
-    s.push("background-position:center");
-    s.push("background-repeat:no-repeat");
-  } else if (node.style.background) {
-    s.push(`background:${node.style.background}`);
+  // Section 标记 — 只在 Section 根节点添加
+  const section = sectionMap.get(node.id);
+  if (section && section.nodeId === node.id) {
+    parts.push(`data-section-id="${section.id}"`);
+    parts.push(`data-section-name="${escapeAttr(section.name)}"`);
   }
 
-  // ========== 文本 ==========
-  if (node.style.color) s.push(`color:${node.style.color}`);
-  if (node.style.fontSize) s.push(`font-size:${node.style.fontSize}px`);
-  if (node.style.fontFamily) s.push(`font-family:'${node.style.fontFamily}', sans-serif`);
-  if (node.style.fontWeight) s.push(`font-weight:${node.style.fontWeight}`);
-  if (node.style.lineHeight) s.push(`line-height:${node.style.lineHeight}px`);
-  if (node.style.textAlign) s.push(`text-align:${node.style.textAlign}`);
-
-  // ========== 圆角 ==========
-  if (node.style.borderRadius) {
-    const br = node.style.borderRadius;
-    if (br.linked) {
-      s.push(`border-radius:${br.topLeft}px`);
-    } else {
-      s.push(`border-radius:${br.topLeft}px ${br.topRight}px ${br.bottomRight}px ${br.bottomLeft}px`);
-    }
-  }
-
-  // ========== overflow ==========
-  if (node.style.overflow) s.push(`overflow:${node.style.overflow}`);
-
-  // ========== padding ==========
-  if (node.style.padding) {
-    const p = node.style.padding;
-    if (p.top === p.right && p.right === p.bottom && p.bottom === p.left) {
-      s.push(`padding:${p.top}px`);
-    } else {
-      s.push(`padding:${p.top}px ${p.right}px ${p.bottom}px ${p.left}px`);
-    }
-  }
-
-  // ========== margin ==========
-  if (node.style.margin) {
-    const m = node.style.margin;
-    s.push(`margin:${m.top}px ${m.right}px ${m.bottom}px ${m.left}px`);
-  }
-
-  // ========== box-shadow ==========
-  if (node.style.boxShadow) s.push(`box-shadow:${node.style.boxShadow}`);
-
-  // ========== border ==========
-  if (node.style.border) s.push(`border:${node.style.border}`);
-
-  return s.join(";");
-}
-
-function formatSize(val: number | string | undefined): string {
-  if (val === undefined) return "auto";
-  return typeof val === "number" ? `${val}px` : val;
+  return " " + parts.join(" ");
 }
 
 function escapeHTML(text: string): string {
