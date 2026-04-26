@@ -25,7 +25,7 @@ export type LLMResponse = {
 };
 
 export function loadLLMConfig(): LLMConfig {
-  const apiKey = process.env.LLM_API_KEY || process.env.CLAUDE_API_KEY || "";
+  const apiKey = process.env.LLM_API_KEY || "";
   const baseUrl = process.env.LLM_BASE_URL || "https://api.anthropic.com";
   const model = process.env.LLM_MODEL || "claude-sonnet-4-6";
   const maxTokens = parseInt(process.env.LLM_MAX_TOKENS || "4096", 10);
@@ -43,7 +43,7 @@ export class LLMClient {
 
     if (!this.config.apiKey) {
       throw new Error(
-        "LLM API key not configured. Set LLM_API_KEY or CLAUDE_API_KEY in .env",
+        "LLM API key not configured. Set LLM_API_KEY in .env",
       );
     }
 

@@ -27,21 +27,8 @@ describe("loadLLMConfig", () => {
     expect(config.temperature).toBe(0.3);
   });
 
-  it("falls back to CLAUDE_API_KEY if LLM_API_KEY not set", () => {
-    delete process.env.LLM_API_KEY;
-    delete process.env.LLM_BASE_URL;
-    delete process.env.LLM_MODEL;
-    process.env.CLAUDE_API_KEY = "sk-fallback";
-
-    const config = loadLLMConfig();
-    expect(config.apiKey).toBe("sk-fallback");
-    expect(config.baseUrl).toBe("https://api.anthropic.com");
-    expect(config.model).toBe("claude-sonnet-4-6");
-  });
-
   it("uses defaults when no env vars set", () => {
     delete process.env.LLM_API_KEY;
-    delete process.env.CLAUDE_API_KEY;
     delete process.env.LLM_BASE_URL;
     delete process.env.LLM_MODEL;
     delete process.env.LLM_MAX_TOKENS;
