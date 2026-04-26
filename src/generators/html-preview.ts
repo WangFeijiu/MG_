@@ -1,19 +1,32 @@
 /**
- * 机器 DSL 到预览 HTML 的生成器（v2 优化版）
+ * 机器 DSL 到预览 HTML 的生成器（v3 — LLM 语义化 Section 生成）
  *
- * 优化点：
- * - Design Token → CSS 变量（:root 定义）
- * - CSS 类去重（相同样式共享类名）
- * - Section 分块（data-section-id）
- * - 保持 data-dsl-id 等插件编辑属性
+ * 方法论：
+ * - DSL → Token 提取 → Section 切分 → [LLM 语义重建] → CSS 统一 → 页面拼接
+ * - 每个 Section 独立调用 LLM 生成语义化 HTML
+ * - LLM 失败时 fallback 到机械翻译
  */
 
 import type { MachineDSL, DSLNode } from "../types/machine-dsl.js";
 import { extractDesignTokens, generateCSSTokenBlock, type DesignTokens } from "./token-extractor.js";
 import { buildCSSClasses, generateCSSClassBlock, type CSSClassMap } from "./css-optimizer.js";
 import { splitSections, type Section } from "./section-splitter.js";
+import {
+  generateAllSemanticSections,
+  type SectionHTMLResult,
+} from "./llm-section-html-generator.js";
+import { LLMClient } from "../llm/llm-client.js";
 
-export function generatePreviewHTML(dsl: MachineDSL): string {
+export type PreviewOptions = {
+  /** 启用 LLM 语义化生成（需要 LLM_API_KEY） */
+  useLLM?: boolean;
+  llmClient?: LLMClient;
+};
+
+export async function generatePreviewHTML(
+  dsl: MachineDSL,
+  options?: PreviewOptions,
+): Promise<string> {
   const { page, nodes } = dsl;
 
   const rootNode = nodes.find(n => n.id === page.id);
@@ -25,24 +38,68 @@ export function generatePreviewHTML(dsl: MachineDSL): string {
   // Step 1: 提取 Design Tokens
   const tokens = extractDesignTokens(dsl);
 
-  // Step 2: 构建 CSS 类
-  const classMap = buildCSSClasses(nodes, nodeMap, tokens);
-
-  // Step 3: 识别 Sections
+  // Step 2: 识别 Sections
   const sections = splitSections(dsl);
-  const sectionMap = new Map<string, Section>();
-  for (const sec of sections) {
-    for (const nid of sec.nodeIds) {
-      sectionMap.set(nid, sec);
+
+  // Step 3: 尝试 LLM 语义化生成
+  let semanticSections: Map<string, SectionHTMLResult> | null = null;
+
+  if (options?.useLLM !== false) {
+    try {
+      semanticSections = await generateAllSemanticSections(
+        dsl, sections, nodeMap, tokens,
+        { llmClient: options?.llmClient },
+      );
+    } catch (err: any) {
+      console.warn(`   ⚠️  LLM 语义化生成失败，回退到机械翻译: ${err.message}`);
     }
   }
 
-  // Step 4: 生成 CSS 块
+  // Step 4: 构建 CSS 类（机械翻译 fallback 用）
+  const classMap = buildCSSClasses(nodes, nodeMap, tokens);
+
+  // Step 5: 生成各 Section HTML
+  const sectionMap = new Map<string, Section>();
+  for (const sec of sections) {
+    for (const nid of sec.nodeIds) sectionMap.set(nid, sec);
+  }
+
+  const sectionHTMLs: string[] = [];
+  const sectionCSS: string[] = [];
+
+  for (const section of sections) {
+    const semantic = semanticSections?.get(section.id);
+
+    if (semantic && semantic.html.trim()) {
+      // 使用 LLM 生成的语义 HTML
+      sectionHTMLs.push(`<!-- Section: ${section.name} -->\n${semantic.html}`);
+      if (semantic.css) sectionCSS.push(semantic.css);
+    } else {
+      // Fallback: 机械翻译
+      const sectionRoot = nodeMap.get(section.nodeId);
+      if (sectionRoot) {
+        const html = renderNode(sectionRoot, nodeMap, classMap, sectionMap);
+        sectionHTMLs.push(`<!-- Section: ${section.name} (mechanical) -->\n${html}`);
+      }
+    }
+  }
+
+  // Step 6: 统一 CSS
   const tokenCSS = generateCSSTokenBlock(tokens);
   const classCSS = generateCSSClassBlock(classMap);
 
-  // Step 5: 生成 HTML body
-  const bodyHTML = renderNode(rootNode, nodeMap, classMap, sectionMap);
+  const unifiedCSS = [
+    "/* Design Tokens */",
+    tokenCSS,
+    "",
+    "/* Component Styles */",
+    classCSS,
+    "",
+    "/* LLM Section Styles */",
+    ...sectionCSS,
+  ].join("\n");
+
+  const bodyHTML = sectionHTMLs.join("\n\n");
 
   return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -64,11 +121,7 @@ export function generatePreviewHTML(dsl: MachineDSL): string {
     .dsl-node:hover { outline: 2px solid rgba(59, 130, 246, 0.5); outline-offset: 2px; }
     .dsl-node.selected { outline: 2px solid rgb(59, 130, 246); outline-offset: 2px; }
 
-    /* Design Tokens */
-    ${tokenCSS}
-
-    /* CSS Classes */
-    ${classCSS}
+    ${unifiedCSS}
   </style>
 </head>
 <body>
@@ -76,6 +129,8 @@ ${bodyHTML}
 </body>
 </html>`;
 }
+
+// ========== 机械翻译（fallback） ==========
 
 function renderNode(
   node: DSLNode,
@@ -88,7 +143,6 @@ function renderNode(
 
   let content = "";
 
-  // 图片节点
   if (node.type === "image" && node.content?.src) {
     const objectFit = node.style.objectFit || "cover";
     const onerror = `var p=this.parentElement;p.style.background='linear-gradient(135deg,#e8e8e8 25%,#d0d0d0 50%,#e8e8e8 75%)';this.style.display='none'`;
@@ -96,12 +150,10 @@ function renderNode(
     return `<${tag}${attrs}>${content}</${tag}>`;
   }
 
-  // 文本内容
   if (node.type === "text" && node.content?.text) {
     content = escapeHTML(node.content.text);
   }
 
-  // 子节点
   if (node.children.length > 0) {
     const childrenHTML = node.children
       .map(id => nodeMap.get(id))
@@ -126,9 +178,6 @@ function getHTMLTag(node: DSLNode): string {
   }
 }
 
-/**
- * 生成节点属性 — 有 CSS 类用类，否则用内联 style
- */
 function generateAttributes(
   node: DSLNode,
   classMap: CSSClassMap,
@@ -136,7 +185,6 @@ function generateAttributes(
 ): string {
   const classParts = ["dsl-node", `dsl-${node.type}`];
 
-  // 添加优化后的 CSS 类
   const extraClasses = classMap.nodeClasses.get(node.id);
   if (extraClasses) {
     classParts.push(...extraClasses);
@@ -146,7 +194,6 @@ function generateAttributes(
     `class="${classParts.join(" ")}"`,
   ];
 
-  // 内联样式（非去重节点）
   const inlineStyle = classMap.nodeInlineStyles.get(node.id);
   if (inlineStyle) {
     parts.push(`style="${inlineStyle}"`);
@@ -156,7 +203,6 @@ function generateAttributes(
   parts.push(`data-dsl-type="${node.type}"`);
   if (node.name) parts.push(`data-dsl-name="${escapeAttr(node.name)}"`);
 
-  // Section 标记 — 只在 Section 根节点添加
   const section = sectionMap.get(node.id);
   if (section && section.nodeId === node.id) {
     parts.push(`data-section-id="${section.id}"`);

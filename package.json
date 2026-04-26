@@ -17,7 +17,9 @@
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,json,md}\"",
-    "start": "node dist/server/index.js"
+    "start": "node dist/server/index.js",
+    "pipeline": "tsx src/index.ts",
+    "pipeline:rebuild": "tsx src/index.ts --rebuild"
   },
   "keywords": [
     "dsl",
@@ -30,6 +32,7 @@
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
+    "@mastergo/magic-mcp": "^0.1.6",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "cors": "^2.8.5",
     "dotenv": "^17.4.2",

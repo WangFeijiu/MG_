@@ -169,7 +169,7 @@ async function main() {
 
   // Step 3: 生成预览 HTML
   console.log("🎨 Step 3: 生成预览 HTML...");
-  const previewHTML = generatePreviewHTML(machineDSL);
+  const previewHTML = await generatePreviewHTML(machineDSL);
 
   const previewHTMLPath = join(outputDir, "preview.html");
   writeFileSync(previewHTMLPath, previewHTML, "utf-8");
@@ -182,7 +182,7 @@ async function main() {
 
   // Step 5: 生成 React 代码
   console.log("⚛️  Step 5: 生成 React 代码...");
-  const reactOutput = generateReactApp(finalDSL);
+  const reactOutput = await generateReactApp(finalDSL);
   const reactDir = join(outputDir, "react");
   const sectionsDir = join(reactDir, "sections");
   if (!existsSync(reactDir)) mkdirSync(reactDir, { recursive: true });
@@ -204,7 +204,7 @@ async function main() {
       const nodeMap = new Map<string, any>();
       for (const node of finalDSL.nodes) nodeMap.set(node.id, node);
       const sections = splitSections(finalDSL);
-      const previewHTML = generatePreviewHTML(finalDSL);
+      const previewHTML = await generatePreviewHTML(finalDSL);
 
       const validation = await runValidationPipeline(
         finalDSL, sections, nodeMap, reactOutput, previewHTML,
@@ -266,7 +266,7 @@ async function rebuildOnly(outputDir: string) {
 
   // 生成 HTML
   console.log("🎨 生成 preview-final.html...");
-  const html = generatePreviewHTML(dsl);
+  const html = await generatePreviewHTML(dsl);
   const finalPath = join(outputDir, "preview-final.html");
   writeFileSync(finalPath, html, "utf-8");
   console.log(`✅ 已保存: ${finalPath}`);
@@ -277,7 +277,7 @@ async function rebuildOnly(outputDir: string) {
 
   // 生成 React 代码
   console.log("⚛️  生成 React 代码...");
-  const reactOutput = generateReactApp(dsl);
+  const reactOutput = await generateReactApp(dsl);
   const reactDir = join(outputDir, "react");
   const sectionsDir = join(reactDir, "sections");
   if (!existsSync(reactDir)) mkdirSync(reactDir, { recursive: true });
@@ -297,7 +297,7 @@ async function rebuildOnly(outputDir: string) {
       const nodeMap = new Map<string, any>();
       for (const node of dsl.nodes) nodeMap.set(node.id, node);
       const sections = splitSections(dsl);
-      const previewHTML = generatePreviewHTML(dsl);
+      const previewHTML = await generatePreviewHTML(dsl);
 
       const validation = await runValidationPipeline(
         dsl, sections, nodeMap, reactOutput, previewHTML,

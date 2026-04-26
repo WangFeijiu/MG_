@@ -18,7 +18,18 @@
       "Bash(git add:*)",
       "Bash(pnpm install *)",
       "Bash(pnpm test *)",
-      "Bash(pnpm --version)"
+      "Bash(pnpm --version)",
+      "Bash(git commit -m 'feat: initialize DSL2React project structure \\(STORY-000\\) *)",
+      "Bash(pnpm test:coverage -- server/parser/dsl-parser.test.ts --run)",
+      "Bash(git commit -m 'feat\\(parser\\): implement DSL parser with AST \\(STORY-001\\) *)",
+      "Bash(git commit *)",
+      "Bash(pnpm test:coverage -- server/analyzer/token-extractor.test.ts --run)",
+      "Bash(pnpm test:coverage -- --run)",
+      "Bash(npx tsc *)",
+      "Bash(npx vitest *)",
+      "Bash(git status *)",
+      "Bash(git check-ignore *)",
+      "Bash(npm ls *)"
     ]
   }
 }

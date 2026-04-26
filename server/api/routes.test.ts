@@ -72,14 +72,14 @@ describe("API Routes", () => {
     expect(res.body.error).toContain("Invalid DSL");
   });
 
-  it("POST /generate — generates code after DSL upload", () => {
+  it("POST /generate — generates code after DSL upload", async () => {
     store.setDSL(makeDSL());
 
     const req = { body: {} } as Request;
     const res = mockRes();
 
     const handler = router.stack.find(l => l.route?.path === "/generate")?.route?.stack?.[0]?.handle;
-    handler!(req, res, () => {});
+    await handler!(req, res, () => {});
 
     expect(res.statusCode).toBe(200);
     expect(res.body.reactOutput.sectionCount).toBeGreaterThanOrEqual(1);
@@ -87,12 +87,12 @@ describe("API Routes", () => {
     expect(store.getReactOutput()).not.toBeNull();
   });
 
-  it("POST /generate — rejects without DSL", () => {
+  it("POST /generate — rejects without DSL", async () => {
     const req = { body: {} } as Request;
     const res = mockRes();
 
     const handler = router.stack.find(l => l.route?.path === "/generate")?.route?.stack?.[0]?.handle;
-    handler!(req, res, () => {});
+    await handler!(req, res, () => {});
 
     expect(res.statusCode).toBe(400);
     expect(res.body.error).toContain("No DSL");
@@ -112,7 +112,7 @@ describe("API Routes", () => {
     expect(res.body.sectionCount).toBeGreaterThanOrEqual(0);
   });
 
-  it("POST /patch — applies a patch", () => {
+  it("POST /patch — applies a patch", async () => {
     store.setDSL(makeDSL());
 
     const req = {
@@ -121,7 +121,7 @@ describe("API Routes", () => {
     const res = mockRes();
 
     const handler = router.stack.find(l => l.route?.path === "/patch")?.route?.stack?.[0]?.handle;
-    handler!(req, res, () => {});
+    await handler!(req, res, () => {});
 
     expect(res.statusCode).toBe(200);
     expect(res.body.applied).toBe(true);

@@ -50,11 +50,11 @@ export function applyPatchesToDSL(dsl: MachineDSL, patches: Patch[]): MachineDSL
   return { ...dsl, nodes: [...nodeMap.values()] };
 }
 
-export function incrementalRegenerate(
+export async function incrementalRegenerate(
   dsl: MachineDSL,
   patches: Patch[],
   previousOutput: ReactOutput | null,
-): IncrementalResult {
+): Promise<IncrementalResult> {
   const patchedDSL = applyPatchesToDSL(dsl, patches);
 
   const nodeMap = new Map(patchedDSL.nodes.map(n => [n.id, n]));
@@ -72,7 +72,7 @@ export function incrementalRegenerate(
   const regenerated = sections.filter(s => affectedSet.has(s.id)).map(s => s.id);
   const skipped = sections.filter(s => !affectedSet.has(s.id)).map(s => s.id);
 
-  const reactOutput = generateReactApp(patchedDSL);
+  const reactOutput = await generateReactApp(patchedDSL, { useLLM: false });
 
   return {
     regeneratedSections: regenerated,

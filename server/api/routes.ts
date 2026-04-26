@@ -60,7 +60,7 @@ export function createAPIRouter(store: InMemoryStore): Router {
   });
 
   // POST /api/v1/generate — 生成 HTML + React 代码
-  router.post("/generate", (req, res) => {
+  router.post("/generate", async (req, res) => {
     try {
       const dsl = store.getDSL();
       if (!dsl) {
@@ -68,8 +68,8 @@ export function createAPIRouter(store: InMemoryStore): Router {
         return;
       }
 
-      const previewHTML = generatePreviewHTML(dsl);
-      const reactOutput = generateReactApp(dsl);
+      const previewHTML = await generatePreviewHTML(dsl);
+      const reactOutput = await generateReactApp(dsl);
       store.setReactOutput(reactOutput);
 
       res.json({
@@ -120,7 +120,7 @@ export function createAPIRouter(store: InMemoryStore): Router {
   });
 
   // POST /api/v1/patch — 应用 Patch
-  router.post("/patch", (req, res) => {
+  router.post("/patch", async (req, res) => {
     try {
       const { targetNodeId, op, payload } = req.body;
       if (!targetNodeId || !op || !payload) {
@@ -142,7 +142,7 @@ export function createAPIRouter(store: InMemoryStore): Router {
         return;
       }
 
-      const reactOutput = generateReactApp(dsl);
+      const reactOutput = await generateReactApp(dsl);
       store.setReactOutput(reactOutput);
 
       res.json({

@@ -68,9 +68,9 @@ describe("applyPatchesToDSL", () => {
 });
 
 describe("incrementalRegenerate", () => {
-  it("regenerates affected sections and skips others", () => {
+  it("regenerates affected sections and skips others", async () => {
     const dsl = makeDSL();
-    const result = incrementalRegenerate(dsl, [
+    const result = await incrementalRegenerate(dsl, [
       { targetNodeId: "t1", op: "updateContent", payload: { text: "Changed" } },
     ], null);
 
@@ -79,9 +79,9 @@ describe("incrementalRegenerate", () => {
     expect(result.reactOutput.sections.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("handles multiple patches", () => {
+  it("handles multiple patches", async () => {
     const dsl = makeDSL();
-    const result = incrementalRegenerate(dsl, [
+    const result = await incrementalRegenerate(dsl, [
       { targetNodeId: "s1", op: "updateStyle", payload: { background: "blue" } },
       { targetNodeId: "s2", op: "updateStyle", payload: { background: "green" } },
     ], null);
@@ -89,9 +89,9 @@ describe("incrementalRegenerate", () => {
     expect(result.reactOutput).toBeDefined();
   });
 
-  it("works without previous output", () => {
+  it("works without previous output", async () => {
     const dsl = makeDSL();
-    const result = incrementalRegenerate(dsl, [], null);
+    const result = await incrementalRegenerate(dsl, [], null);
     expect(result.reactOutput.sections.length).toBeGreaterThanOrEqual(1);
   });
 });
