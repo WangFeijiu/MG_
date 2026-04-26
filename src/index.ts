@@ -208,9 +208,10 @@ async function main() {
 
       const validation = await runValidationPipeline(
         finalDSL, sections, nodeMap, reactOutput, previewHTML,
-        { maxAttempts: 3, enableLLMCorrection: !!process.env.LLM_API_KEY },
+        { maxAttempts: 3, enableLLMCorrection: !!process.env.LLM_API_KEY, outputDir },
       );
 
+      console.log(`   Baseline: ${validation.baselineSource}`);
       console.log(`   对比完成: ${validation.results.length} sections`);
       for (const r of validation.results) {
         const icon = r.converged ? "✅" : "⚠️";
