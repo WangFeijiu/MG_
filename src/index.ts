@@ -20,6 +20,10 @@ import { convertMasterGoToMachine } from "./converters/mastergo-to-machine.js";
 import { generatePreviewHTML } from "./generators/html-preview.js";
 import { generateReactApp } from "./generators/react-section-generator.js";
 import { applyPatches } from "./utils/patch.js";
+import { extractDesignTokens } from "./generators/token-extractor.js";
+import { buildCSSClasses } from "./generators/css-optimizer.js";
+import { splitSections } from "./generators/section-splitter.js";
+import { runValidationPipeline } from "./validators/validation-pipeline.js";
 
 import type { PatchDocument } from "./types/patch.js";
 
@@ -194,6 +198,35 @@ async function main() {
   console.log(`✅ React 代码已保存: ${reactDir}/`);
   console.log(`   App.tsx + App.css + ${reactOutput.sections.length} sections\n`);
 
+  // Step 6: 截图对比 + 自动修正
+  const skipValidate = args.includes("--skip-validate");
+  if (!skipValidate) {
+    console.log("📸 Step 6: Section 级截图对比...");
+    try {
+      const tokens = extractDesignTokens(finalDSL);
+      const nodeMap = new Map<string, any>();
+      for (const node of finalDSL.nodes) nodeMap.set(node.id, node);
+      const classMap = buildCSSClasses(finalDSL.nodes, nodeMap, tokens);
+      const sections = splitSections(finalDSL);
+
+      const validation = await runValidationPipeline(
+        finalDSL, sections, nodeMap, classMap, tokens,
+        { maxAttempts: 3, enableLLMCorrection: !!process.env.LLM_API_KEY },
+      );
+
+      console.log(`   对比完成: ${validation.results.length} sections`);
+      for (const r of validation.results) {
+        const icon = r.converged ? "✅" : "⚠️";
+        console.log(`   ${icon} ${r.sectionName} (${r.kind}) — diff: ${(r.diffPercent * 100).toFixed(1)}% — ${r.attempts} attempts${r.corrected ? " (LLM corrected)" : ""}`);
+      }
+      console.log(`   平均差异: ${(validation.totalDiff * 100).toFixed(1)}% | ${validation.allConverged ? "全部收敛" : "部分未收敛"}\n`);
+    } catch (err: any) {
+      console.log(`   ⚠️  截图对比跳过: ${err.message}\n`);
+    }
+  } else {
+    console.log("⏭️  Step 6: 截图对比已跳过 (--skip-validate)\n");
+  }
+
   // Step 4b: 保存应用 patch 后的 DSL
   console.log("💾 Step 4b: 保存应用 patch 后的 DSL...");
   const finalDSLPath = join(outputDir, "final-machine-dsl.json");
@@ -240,12 +273,50 @@ async function rebuildOnly(outputDir: string) {
   writeFileSync(finalPath, html, "utf-8");
   console.log(`✅ 已保存: ${finalPath}`);
 
-  // 也更新 preview.html（不含 patch）
-  console.log("🎨 生成 preview.html（不含 patch）...");
-  const previewHTML = generatePreviewHTML(dsl);
   const previewPath = join(outputDir, "preview.html");
-  writeFileSync(previewPath, previewHTML, "utf-8");
-  console.log(`✅ 已保存: ${previewPath}\n`);
+  writeFileSync(previewPath, html, "utf-8");
+  console.log(`✅ 已保存: ${previewPath}`);
+
+  // 生成 React 代码
+  console.log("⚛️  生成 React 代码...");
+  const reactOutput = generateReactApp(dsl);
+  const reactDir = join(outputDir, "react");
+  const sectionsDir = join(reactDir, "sections");
+  if (!existsSync(reactDir)) mkdirSync(reactDir, { recursive: true });
+  if (!existsSync(sectionsDir)) mkdirSync(sectionsDir, { recursive: true });
+  writeFileSync(join(reactDir, "App.tsx"), reactOutput.appTSX, "utf-8");
+  writeFileSync(join(reactDir, "App.css"), reactOutput.appCSS, "utf-8");
+  for (const section of reactOutput.sections) {
+    writeFileSync(join(sectionsDir, section.fileName), section.code, "utf-8");
+  }
+  console.log(`✅ React 代码已保存: ${reactDir}/`);
+
+  // 截图对比
+  const skipValidate = args.includes("--skip-validate");
+  if (!skipValidate) {
+    console.log("📸 Section 级截图对比...");
+    try {
+      const tokens = extractDesignTokens(dsl);
+      const nodeMap = new Map<string, any>();
+      for (const node of dsl.nodes) nodeMap.set(node.id, node);
+      const classMap = buildCSSClasses(dsl.nodes, nodeMap, tokens);
+      const sections = splitSections(dsl);
+
+      const validation = await runValidationPipeline(
+        dsl, sections, nodeMap, classMap, tokens,
+        { maxAttempts: 3, enableLLMCorrection: !!process.env.LLM_API_KEY },
+      );
+
+      console.log(`   对比完成: ${validation.results.length} sections`);
+      for (const r of validation.results) {
+        const icon = r.converged ? "✅" : "⚠️";
+        console.log(`   ${icon} ${r.sectionName} (${r.kind}) — diff: ${(r.diffPercent * 100).toFixed(1)}% — ${r.attempts} attempts${r.corrected ? " (LLM corrected)" : ""}`);
+      }
+      console.log(`   平均差异: ${(validation.totalDiff * 100).toFixed(1)}% | ${validation.allConverged ? "全部收敛" : "部分未收敛"}\n`);
+    } catch (err: any) {
+      console.log(`   ⚠️  截图对比跳过: ${err.message}\n`);
+    }
+  }
 
   console.log("🎉 重建完成！");
 }
