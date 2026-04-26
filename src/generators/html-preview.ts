@@ -1,10 +1,10 @@
 /**
- * 机器 DSL 到预览 HTML 的生成器（v3 — LLM 语义化 Section 生成）
+ * 机器 DSL 到预览 HTML 的生成器（v5 — 整页单次 LLM 生成）
  *
  * 方法论：
- * - DSL → Token 提取 → Section 切分 → [LLM 语义重建] → CSS 统一 → 页面拼接
- * - 每个 Section 独立调用 LLM 生成语义化 HTML
- * - LLM 失败时 fallback 到机械翻译
+ * - DSL → 程序化分析 → 全局设计系统 → 单次 LLM 整页生成
+ * - LLM 输出包含完整 HTML（含 <style>, <script>, 响应式, 交互）
+ * - 失败时 fallback 到旧版 per-section 生成
  */
 
 import type { MachineDSL, DSLNode } from "../types/machine-dsl.js";
@@ -15,10 +15,12 @@ import {
   generateAllSemanticSections,
   type SectionHTMLResult,
 } from "./llm-section-html-generator.js";
+import { generateGlobalDesignSystem, type GlobalDesignSystem } from "./global-design-system.js";
 import { LLMClient } from "../llm/llm-client.js";
+import { analyzeDSL, type DSLAnalysis } from "./dsl-analyzer.js";
+import { generatePageHTML } from "./llm-page-html-generator.js";
 
 export type PreviewOptions = {
-  /** 启用 LLM 语义化生成（需要 LLM_API_KEY） */
   useLLM?: boolean;
   llmClient?: LLMClient;
 };
@@ -28,106 +30,151 @@ export async function generatePreviewHTML(
   options?: PreviewOptions,
 ): Promise<string> {
   const { page, nodes } = dsl;
+  const totalStart = Date.now();
 
   const rootNode = nodes.find(n => n.id === page.id);
   if (!rootNode) throw new Error("Root node not found");
 
+  console.log(`\n[PreviewHTML] 开始生成 — Page: "${page.name}", ${nodes.length} nodes`);
+
+  // Step 1: 程序化分析（纯计算，无 LLM）
+  console.log("[PreviewHTML] Step 1/2: 程序化 DSL 分析...");
+  const t1 = Date.now();
+  const analysis = analyzeDSL(dsl);
+  const sections = splitSections(dsl);
+  console.log(`[PreviewHTML]   ✓ 分析完成: ${sections.length} sections, ${analysis.typographyScale.length} typography levels (${Date.now() - t1}ms)`);
+
+  // Step 2: 单次 LLM 整页生成
+  if (options?.useLLM !== false && nodes.length <= 800) {
+    console.log("[PreviewHTML] Step 2/2: 单次 LLM 整页生成...");
+    const t2 = Date.now();
+    try {
+      const result = await generatePageHTML(analysis, sections);
+
+      const elapsed = ((Date.now() - t2) / 1000).toFixed(1);
+      console.log(`[PreviewHTML]   ✓ 整页生成完成 (${elapsed}s, ${result.usage.inputTokens + result.usage.outputTokens} tokens)`);
+
+      const totalElapsed = ((Date.now() - totalStart) / 1000).toFixed(1);
+      console.log(`[PreviewHTML] 全部完成 — 总耗时 ${totalElapsed}s\n`);
+      return result.html;
+    } catch (err: any) {
+      console.warn(`[PreviewHTML]   ⚠️ 整页生成失败: ${err.message}`);
+      console.log("[PreviewHTML]   → 回退到 per-section 生成...");
+    }
+  } else if (nodes.length > 800) {
+    console.log(`[PreviewHTML]   ⊘ 节点数 ${nodes.length} > 800，使用 per-section 模式`);
+  } else {
+    console.log("[PreviewHTML]   ⊘ LLM 已禁用，使用机械翻译");
+  }
+
+  // Fallback: 旧版 per-section 生成
+  return fallbackPerSectionGeneration(dsl, analysis, sections, options, totalStart);
+}
+
+// ========== 旧版 Per-Section 生成（fallback） ==========
+
+async function fallbackPerSectionGeneration(
+  dsl: MachineDSL,
+  analysis: DSLAnalysis,
+  sections: Section[],
+  options: PreviewOptions | undefined,
+  totalStart: number,
+): Promise<string> {
+  const { page, nodes } = dsl;
   const nodeMap = new Map<string, DSLNode>();
   for (const node of nodes) nodeMap.set(node.id, node);
 
-  // Step 1: 提取 Design Tokens
-  const tokens = extractDesignTokens(dsl);
-
-  // Step 2: 识别 Sections
-  const sections = splitSections(dsl);
-
-  // Step 3: 尝试 LLM 语义化生成
+  // LLM per-section
+  console.log("[PreviewHTML] Step 2/4: LLM 语义化 Section 生成...");
+  const t4 = Date.now();
   let semanticSections: Map<string, SectionHTMLResult> | null = null;
 
   if (options?.useLLM !== false) {
     try {
       semanticSections = await generateAllSemanticSections(
-        dsl, sections, nodeMap, tokens,
+        dsl, sections, nodeMap, analysis.tokens, analysis.designSystem,
         { llmClient: options?.llmClient },
       );
     } catch (err: any) {
-      console.warn(`   ⚠️  LLM 语义化生成失败，回退到机械翻译: ${err.message}`);
+      console.warn(`[PreviewHTML]   ⚠️ LLM 语义化生成失败: ${err.message}`);
     }
   }
+  console.log(`[PreviewHTML]   ✓ Step 2 完成 (${Date.now() - t4}ms)`);
 
-  // Step 4: 构建 CSS 类（机械翻译 fallback 用）
-  const classMap = buildCSSClasses(nodes, nodeMap, tokens);
+  // 机械 CSS
+  console.log("[PreviewHTML] Step 3/4: 构建机械 CSS 类...");
+  const t5 = Date.now();
+  const classMap = buildCSSClasses(nodes, nodeMap, analysis.tokens);
+  console.log(`[PreviewHTML]   ✓ ${classMap.classes.size} 个 CSS 类 (${Date.now() - t5}ms)`);
 
-  // Step 5: 生成各 Section HTML
+  // 拼接
+  console.log("[PreviewHTML] Step 4/4: 拼接 Section HTML...");
+  const t6 = Date.now();
   const sectionMap = new Map<string, Section>();
   for (const sec of sections) {
     for (const nid of sec.nodeIds) sectionMap.set(nid, sec);
   }
 
   const sectionHTMLs: string[] = [];
-  const sectionCSS: string[] = [];
   const llmCoveredNodeIds = new Set<string>();
+  let llmSectionCount = 0;
+  let fallbackSectionCount = 0;
 
   for (const section of sections) {
     const semantic = semanticSections?.get(section.id);
 
     if (semantic && semantic.html.trim()) {
-      // 使用 LLM 生成的语义 HTML（去掉内联 style 标签，CSS 统一放到页面级）
-      const cleanHTML = stripStyleTags(semantic.html);
-      sectionHTMLs.push(`<!-- Section: ${section.name} -->\n${cleanHTML}`);
-      if (semantic.css) sectionCSS.push(semantic.css);
-      // 标记该 section 下的节点已被 LLM 覆盖
+      sectionHTMLs.push(`<!-- Section: ${section.name} -->\n${semantic.html}`);
       for (const nid of section.nodeIds) llmCoveredNodeIds.add(nid);
+      llmSectionCount++;
     } else {
-      // Fallback: 机械翻译
       const sectionRoot = nodeMap.get(section.nodeId);
       if (sectionRoot) {
         const html = renderNode(sectionRoot, nodeMap, classMap, sectionMap);
         sectionHTMLs.push(`<!-- Section: ${section.name} (mechanical) -->\n${html}`);
       }
+      fallbackSectionCount++;
     }
   }
+  console.log(`[PreviewHTML]   ✓ LLM: ${llmSectionCount}, Fallback: ${fallbackSectionCount} (${Date.now() - t6}ms)`);
 
-  // Step 6: 统一 CSS
-  const tokenCSS = generateCSSTokenBlock(tokens);
-
-  // 机械 CSS：只保留未被 LLM 覆盖的节点
+  // CSS 组装
+  const tokenCSS = generateCSSTokenBlock(analysis.tokens);
   const filteredClassCSS = filterCoveredClasses(classMap, llmCoveredNodeIds);
 
   const unifiedCSS = [
-    "/* Design Tokens */",
+    "/* Global Semantic Design System */",
+    analysis.designSystem.rootCSS,
+    "",
+    "/* Base & Utilities */",
+    analysis.designSystem.utilityCSS,
+    "",
+    "/* Legacy Design Tokens (fallback) */",
     tokenCSS,
     "",
-    "/* Semantic Section Styles */",
-    ...sectionCSS,
-    "",
-    "/* Component Styles (fallback) */",
+    "/* Component Styles (mechanical fallback) */",
     filteredClassCSS,
   ].join("\n");
 
   const bodyHTML = sectionHTMLs.join("\n\n");
+  const totalElapsed = ((Date.now() - totalStart) / 1000).toFixed(1);
+  console.log(`[PreviewHTML] 全部完成 (fallback) — 总耗时 ${totalElapsed}s\n`);
 
   return `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${page.name} - Preview</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <title>${page.name} — Preview</title>
+  ${analysis.designSystem.fontLinks || `<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">`}
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      display: flex;
-      justify-content: center;
-      font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    }
+    ${unifiedCSS}
+
     .dsl-node { transition: outline 0.15s ease; }
     .dsl-node:hover { outline: 2px solid rgba(59, 130, 246, 0.5); outline-offset: 2px; }
     .dsl-node.selected { outline: 2px solid rgb(59, 130, 246); outline-offset: 2px; }
-
-    ${unifiedCSS}
   </style>
 </head>
 <body>
@@ -138,14 +185,9 @@ ${bodyHTML}
 
 // ========== CSS 工具 ==========
 
-function stripStyleTags(html: string): string {
-  return html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "").trim();
-}
-
 function filterCoveredClasses(classMap: CSSClassMap, coveredNodeIds: Set<string>): string {
   const lines: string[] = [];
   for (const [className, body] of classMap.classes) {
-    // 检查这个类是否只被已覆盖的节点使用
     let allCovered = true;
     for (const [nodeId, classes] of classMap.nodeClasses) {
       if (classes.includes(className) && !coveredNodeIds.has(nodeId)) {

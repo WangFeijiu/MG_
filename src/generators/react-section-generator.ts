@@ -17,6 +17,7 @@ import {
   generateAllSemanticSections,
   type SectionHTMLResult,
 } from "./llm-section-html-generator.js";
+import { generateGlobalDesignSystem } from "./global-design-system.js";
 import { LLMClient } from "../llm/llm-client.js";
 
 export type ReactOutput = {
@@ -55,13 +56,16 @@ export async function generateReactApp(
   // Step 3: 识别 Sections
   const sections = splitSections(dsl);
 
-  // Step 4: 尝试 LLM 语义化生成
+  // Step 4: 生成全局设计系统
+  const globalSystem = generateGlobalDesignSystem(dsl);
+
+  // Step 5: 尝试 LLM 语义化生成
   let semanticSections: Map<string, SectionHTMLResult> | null = null;
 
   if (options?.useLLM !== false) {
     try {
       semanticSections = await generateAllSemanticSections(
-        dsl, sections, nodeMap, tokens,
+        dsl, sections, nodeMap, tokens, globalSystem,
         { llmClient: options?.llmClient },
       );
     } catch (err: any) {
@@ -107,19 +111,18 @@ export default ${componentName};
 
   const validSections = sectionComponents.filter((s): s is { fileName: string; code: string } => s !== null);
 
-  // Step 6: 收集所有 CSS（tokens + 机械类 + LLM section CSS）
+  // Step 6: 收集所有 CSS（tokens + 机械类 + 全局设计系统）
   const tokenCSS = generateCSSTokenBlock(tokens);
   const classCSS = generateCSSClassBlock(classMap);
   const uniqueCSS = generateUniqueNodeCSS(classMap);
 
-  const llmCSS: string[] = [];
-  if (semanticSections) {
-    for (const [, result] of semanticSections) {
-      if (result.css) llmCSS.push(result.css);
-    }
-  }
+  const appCSS = `/* Global Design System */
+${globalSystem.rootCSS}
 
-  const appCSS = `/* Design Tokens */
+/* Utilities */
+${globalSystem.utilityCSS}
+
+/* Design Tokens */
 ${tokenCSS}
 
 /* Component Styles */
@@ -127,9 +130,6 @@ ${classCSS}
 
 /* Unique Node Styles */
 ${uniqueCSS}
-
-/* LLM Section Styles */
-${llmCSS.join("\n\n")}
 `;
 
   // Step 7: 生成 App.tsx

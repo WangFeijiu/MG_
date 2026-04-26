@@ -19,7 +19,9 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,json,md}\"",
     "start": "node dist/server/index.js",
     "pipeline": "tsx src/index.ts",
-    "pipeline:rebuild": "tsx src/index.ts --rebuild"
+    "pipeline:rebuild": "tsx src/index.ts --rebuild",
+    "skeleton": "tsx src/cli/skeleton.ts",
+    "clean": "tsx src/cli/clean.ts"
   },
   "keywords": [
     "dsl",

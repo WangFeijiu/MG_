@@ -249,7 +249,7 @@ async function rebuildHTML(): Promise<{ success: boolean; error?: string }> {
     const finalDSLPath = join(OUTPUT_DIR, "final-machine-dsl.json");
     writeFileSync(finalDSLPath, JSON.stringify(dsl, null, 2), "utf-8");
 
-    const html = generatePreviewHTML(dsl);
+    const html = await generatePreviewHTML(dsl);
     const finalPath = join(OUTPUT_DIR, "preview-final.html");
     writeFileSync(finalPath, html, "utf-8");
 

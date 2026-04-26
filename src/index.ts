@@ -233,7 +233,7 @@ async function main() {
 
   // Step 5: 重新生成预览 HTML（包含 patch）
   console.log("🎨 Step 5: 重新生成包含 patch 的预览 HTML...");
-  const finalPreviewHTML = generatePreviewHTML(finalDSL);
+  const finalPreviewHTML = await generatePreviewHTML(finalDSL);
   const finalPreviewPath = join(outputDir, "preview-final.html");
   writeFileSync(finalPreviewPath, finalPreviewHTML, "utf-8");
   console.log(`✅ 最终预览 HTML 已保存: ${finalPreviewPath}\n`);

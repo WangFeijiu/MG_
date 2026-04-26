@@ -293,38 +293,15 @@ ${htmlBody}
 
 function getSectionYBounds(sections: Section[], nodeMap: Map<string, DSLNode>): Map<string, { y: number; height: number }> {
   const bounds = new Map<string, { y: number; height: number }>();
-  let currentY = 0;
 
   for (const section of sections) {
     const root = nodeMap.get(section.nodeId);
     if (!root) continue;
 
-    let minY = Infinity;
-    let maxY = -Infinity;
-
-    function traverseY(n: DSLNode) {
-      const nodeY = n.layout.y ?? 0;
-      const nodeH = typeof n.layout.height === "number" ? n.layout.height : 0;
-      const absY = currentY + nodeY;
-      if (absY < minY) minY = absY;
-      if (absY + nodeH > maxY) maxY = absY + nodeH;
-      for (const cid of n.children) {
-        const child = nodeMap.get(cid);
-        if (child) traverseY(child);
-      }
-    }
-
-    if (root.layout.y !== undefined) {
-      traverseY(root);
-    } else {
-      minY = currentY;
-      maxY = currentY + (typeof root.layout.height === "number" ? root.layout.height : 400);
-    }
-
-    const h = root.layout.height;
-    const sectionHeight = typeof h === "number" ? h : (maxY - minY) || 400;
-    bounds.set(section.id, { y: currentY, height: sectionHeight });
-    currentY += sectionHeight;
+    // 使用根节点的绝对坐标（DSL 中 layout.y 是页面绝对坐标）
+    const y = root.layout.y ?? 0;
+    const h = typeof root.layout.height === "number" ? root.layout.height : 400;
+    bounds.set(section.id, { y, height: h });
   }
 
   return bounds;
@@ -345,15 +322,23 @@ export async function runValidationPipeline(
   const maxAttempts = options?.maxAttempts ?? 3;
   const enableLLM = options?.enableLLMCorrection ?? false;
   const outputDir = options?.outputDir ?? "output";
+  const totalStart = Date.now();
 
   // 读取设计稿原图 baseline
   const baselinePNGPath = join(outputDir, "design-baseline.png");
   const hasBaseline = existsSync(baselinePNGPath);
 
+  console.log(`\n[Validation] 启动验证管线 — ${sections.length} 个 Section`);
+  console.log(`[Validation] Baseline: ${hasBaseline ? baselinePNGPath : "无 baseline"}`);
+  console.log(`[Validation] LLM Correction: ${enableLLM ? "启用" : "禁用"}, maxAttempts: ${maxAttempts}`);
+
   let browser: Browser;
   try {
+    console.log("[Validation] 启动 Puppeteer...");
     browser = await puppeteer.launch({ headless: true });
+    console.log("[Validation] ✓ Puppeteer 就绪");
   } catch {
+    console.warn("[Validation] ✗ Puppeteer 启动失败，跳过验证");
     return {
       results: sections.map(s => ({
         sectionId: s.id, sectionName: s.name,
@@ -371,6 +356,7 @@ export async function runValidationPipeline(
 
   try {
     // 截取 preview.html 各 section 截图（HTML 还原度）
+    console.log(`[Validation] Step 1/3: 截取 Preview HTML 截图 (${sections.length} sections)...`);
     const previewScreenshots: PNG[] = [];
     for (let i = 0; i < sections.length; i++) {
       const root = nodeMap.get(sections[i].nodeId);
@@ -382,16 +368,24 @@ export async function runValidationPipeline(
       } else {
         previewScreenshots.push(fullPNG);
       }
+      process.stdout.write(`\r[Validation]   Preview 截图 ${i + 1}/${sections.length}`);
     }
+    console.log(" ✓");
 
     // 读取 baseline 或生成 fallback
+    console.log("[Validation] Step 2/3: 读取设计稿 baseline...");
     const baselinePNGPath = join(outputDir, "design-baseline.png");
     const hasBaseline = existsSync(baselinePNGPath);
     let baselineFull: PNG | null = null;
     if (hasBaseline) {
       baselineFull = PNG.sync.read(readFileSync(baselinePNGPath));
+      console.log(`[Validation]   ✓ Baseline 读取成功 (${baselineFull.width}x${baselineFull.height})`);
+    } else {
+      console.log("[Validation]   ⊘ 无 baseline，使用 preview 自对比");
     }
 
+    // 逐 Section 对比
+    console.log(`[Validation] Step 3/3: 逐 Section 对比差异...`);
     for (let i = 0; i < sections.length; i++) {
       const section = sections[i];
       const sectionRoot = nodeMap.get(section.nodeId);
@@ -419,22 +413,31 @@ export async function runValidationPipeline(
       const generatedPNG = await screenshotFullPage(browser, reactHTML, pageWidth);
       const reactAnalysis = comparePNGs(generatedPNG, baselinePNG);
 
+      const needsFix = shouldReport(reactAnalysis.diffPercent, kind);
+      const status = needsFix ? "⚠️ 需修正" : "✓ 通过";
+      console.log(
+        `   [${i + 1}/${sections.length}] ${section.name} — ` +
+        `HTML diff: ${(htmlAnalysis.diffPercent * 100).toFixed(2)}%, ` +
+        `React diff: ${(reactAnalysis.diffPercent * 100).toFixed(2)}% ${status}`,
+      );
+
       const result: SectionValidationResult = {
         sectionId: section.id,
         sectionName: section.name,
         kind,
         htmlDiffPercent: htmlAnalysis.diffPercent,
         reactDiffPercent: reactAnalysis.diffPercent,
-        converged: !shouldReport(reactAnalysis.diffPercent, kind),
+        converged: !needsFix,
         attempts: 1,
         corrected: false,
       };
 
       // LLM correction on React code if diff too high
-      if (shouldReport(reactAnalysis.diffPercent, kind) && enableLLM) {
+      if (needsFix && enableLLM) {
         let currentCode = reactOutput.sections[i]?.code || "";
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           result.attempts = attempt;
+          process.stdout.write(`      [Correction] 尝试 ${attempt}/${maxAttempts}...`);
           try {
             const llm = new LLMClient();
             const engine = new CorrectionEngine(llm, 1);
@@ -447,7 +450,9 @@ export async function runValidationPipeline(
             });
             currentCode = correction.correctedCode;
             result.corrected = true;
-          } catch {
+            console.log(` ✓`);
+          } catch (err: any) {
+            console.log(` ✗ ${err.message}`);
             break;
           }
         }
@@ -465,6 +470,15 @@ export async function runValidationPipeline(
   const totalReactDiff = results.length > 0
     ? results.reduce((sum, r) => sum + r.reactDiffPercent, 0) / results.length
     : 0;
+
+  const convergedCount = results.filter(r => r.converged).length;
+  const correctedCount = results.filter(r => r.corrected).length;
+  const totalElapsed = ((Date.now() - totalStart) / 1000).toFixed(1);
+
+  console.log(`\n[Validation] 验证完成 — 总耗时 ${totalElapsed}s`);
+  console.log(`[Validation]   通过: ${convergedCount}/${results.length}, 修正: ${correctedCount}`);
+  console.log(`[Validation]   HTML avg diff: ${(totalHTMLDiff * 100).toFixed(2)}%, React avg diff: ${(totalReactDiff * 100).toFixed(2)}%`);
+  console.log(`[Validation]   全部收敛: ${results.every(r => r.converged) ? "✓ 是" : "✗ 否"}\n`);
 
   return {
     results,

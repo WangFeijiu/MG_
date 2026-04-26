@@ -12,6 +12,7 @@ export type LLMConfig = {
   model: string;
   maxTokens: number;
   temperature: number;
+  timeout: number;
 };
 
 export type LLMMessage = {
@@ -31,7 +32,9 @@ export function loadLLMConfig(): LLMConfig {
   const maxTokens = parseInt(process.env.LLM_MAX_TOKENS || "4096", 10);
   const temperature = parseFloat(process.env.LLM_TEMPERATURE || "0.7");
 
-  return { apiKey, baseUrl, model, maxTokens, temperature };
+  const timeout = parseInt(process.env.LLM_TIMEOUT || "600000", 10); // 10min default
+
+  return { apiKey, baseUrl, model, maxTokens, temperature, timeout };
 }
 
 export class LLMClient {
@@ -50,6 +53,7 @@ export class LLMClient {
     this.client = config?.client ?? new Anthropic({
       apiKey: this.config.apiKey,
       baseURL: this.config.baseUrl,
+      timeout: this.config.timeout,
     });
   }
 
@@ -89,11 +93,21 @@ export class LLMClient {
         return await this.chat(messages, system);
       } catch (error: any) {
         lastError = error;
+
+        // 可重试错误：限流、服务端错误、网络错误
         const isRetryable =
-          error?.status === 429 || error?.status >= 500;
+          error?.status === 429 ||                    // 限流
+          error?.status >= 500 ||                     // 服务端错误
+          /ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|socket hang up/i.test(error?.message || ""); // 网络错误
+
         if (!isRetryable || attempt === retries) break;
 
-        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+        // 指数退避 + 随机抖动（避免 thundering herd）
+        const baseDelay = Math.min(2000 * Math.pow(2, attempt - 1), 30000);
+        const jitter = Math.random() * 1000;
+        const delay = baseDelay + jitter;
+
+        console.warn(`   ⚠️  LLM 请求失败 (${error?.status || error?.message})，${attempt}/${retries} 次重试，等待 ${(delay / 1000).toFixed(1)}s...`);
         await new Promise((r) => setTimeout(r, delay));
       }
     }

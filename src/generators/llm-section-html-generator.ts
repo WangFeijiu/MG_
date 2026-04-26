@@ -9,11 +9,12 @@ import type { MachineDSL, DSLNode } from "../types/machine-dsl.js";
 import type { DesignTokens } from "./token-extractor.js";
 import type { Section } from "./section-splitter.js";
 import type { SectionKind } from "../validators/tolerance.js";
+import type { GlobalDesignSystem } from "./global-design-system.js";
 import { LLMClient } from "../llm/llm-client.js";
+import { buildCompactTree } from "./tree-formatter.js";
 
 export type SectionHTMLResult = {
   html: string;
-  css: string;
   classNames: string[];
   semanticTag: string;
 };
@@ -44,6 +45,8 @@ export async function generateSemanticSectionHTML(
   nodeMap: Map<string, DSLNode>,
   tokens: DesignTokens,
   kind: SectionKind,
+  globalSystem: GlobalDesignSystem,
+  neighbors: { prev?: string; next?: string },
   options?: {
     llmClient?: LLMClient;
     skipCache?: boolean;
@@ -54,49 +57,60 @@ export async function generateSemanticSectionHTML(
     return sectionCache.get(cacheKey)!;
   }
 
-  // 收集 Section 的节点树
   const sectionRoot = nodeMap.get(section.nodeId);
   if (!sectionRoot) {
-    return { html: "", css: "", classNames: [], semanticTag: "div" };
+    return { html: "", classNames: [], semanticTag: "div" };
   }
 
-  const llm = options?.llmClient ?? new LLMClient();
+  const llm = options?.llmClient ?? new LLMClient({ maxTokens: 16384 });
 
-  const prompt = buildSectionPrompt(section, sectionRoot, nodeMap, tokens, kind, dsl.page);
+  const prompt = buildSectionPrompt(section, sectionRoot, nodeMap, tokens, kind, dsl.page, globalSystem, neighbors);
+  const startMs = Date.now();
 
   try {
+    console.log(`   [LLM] 开始生成 [${section.name}] (${section.nodeIds.length} nodes)...`);
     const response = await llm.chatWithRetry(
       [{ role: "user", content: prompt }],
       SYSTEM_PROMPT,
       2,
     );
+    const elapsed = ((Date.now() - startMs) / 1000).toFixed(1);
+    const tokens = response.usage.inputTokens + response.usage.outputTokens;
 
     const result = parseLLMOutput(response.text, section.name);
+    if (!result.html) {
+      console.warn(`   ⚠️  [LLM] 生成结果无效 [${section.name}] (${elapsed}s, ${tokens} tokens) → fallback 机械翻译`);
+      return { html: "", classNames: [], semanticTag: "div" };
+    }
+
+    console.log(`   ✓ [LLM] 生成完成 [${section.name}] (${elapsed}s, ${tokens} tokens, ${result.classNames.length} classes)`);
     sectionCache.set(cacheKey, result);
     return result;
   } catch (err: any) {
-    console.warn(`   ⚠️  LLM Section 生成失败 [${section.name}]: ${err.message}`);
-    // fallback: 返回空，让调用方用机械翻译兜底
-    return { html: "", css: "", classNames: [], semanticTag: "div" };
+    const elapsed = ((Date.now() - startMs) / 1000).toFixed(1);
+    console.warn(`   ✗ [LLM] 生成失败 [${section.name}] (${elapsed}s): ${err.message} → fallback 机械翻译`);
+    return { html: "", classNames: [], semanticTag: "div" };
   }
 }
 
-const SYSTEM_PROMPT = `You are an expert frontend developer specializing in converting design specifications into clean, semantic HTML with CSS.
+const SYSTEM_PROMPT = `You are an expert frontend developer converting design specs into clean, semantic HTML.
 
-Rules:
+CRITICAL RULES:
 1. Use semantic HTML5 tags: nav, header, section, article, main, aside, footer, h1-h6, p, button, a, img, ul/li, figure/figcaption
-2. Use meaningful, kebab-case class names that describe the UI element (e.g., .navbar, .hero-title, .btn-primary, .feature-card)
-3. Use CSS custom properties (var(--name)) for design tokens
-4. Use flexbox/grid for layouts matching the design structure
-5. Preserve all text content exactly
-6. Use actual image URLs from the design
-7. Responsive: prefer max-width containers over fixed widths
-8. Only output the section HTML, no <html>/<head>/<body> wrapper
-9. Return ONLY a code block, no explanation
+2. Use meaningful, kebab-case class names: .navbar, .hero-title, .btn-primary, .feature-card, .section-header
+3. ONLY use CSS variables from the provided Global Design System — DO NOT create new color/spacing values
+4. Use the shared utility classes when applicable: .container, .btn-primary, .btn-secondary, .section-header
+5. Match layout structure with flexbox/grid
+6. Preserve ALL text content exactly
+7. Use actual image URLs from the design
+8. Responsive: use max-width containers, not fixed widths for main content
+9. ONLY output the section HTML, no <html>/<head>/<body> wrapper
+10. NO <style> tags — all styles use the shared CSS variables and utility classes
+11. Return ONLY a code block, no explanation
 
 Output format:
 <section class="section-name">
-  <!-- semantic HTML -->
+  <!-- semantic HTML using shared utility classes and CSS vars -->
 </section>`;
 
 function buildSectionPrompt(
@@ -106,140 +120,62 @@ function buildSectionPrompt(
   tokens: DesignTokens,
   kind: SectionKind,
   page: MachineDSL["page"],
+  globalSystem: GlobalDesignSystem,
+  neighbors: { prev?: string; next?: string },
 ): string {
   const treeStr = buildCompactTree(root, nodeMap, 0);
-  const tokenStr = buildTokenSummary(tokens);
 
-  return `Convert this design section into clean, semantic HTML with CSS.
+  // 收集相邻 section 信息
+  const neighborInfo: string[] = [];
+  if (neighbors.prev) neighborInfo.push(`Previous section: "${neighbors.prev}"`);
+  if (neighbors.next) neighborInfo.push(`Next section: "${neighbors.next}"`);
 
-## Context
+  return `Convert this design section into clean, semantic HTML.
+
+## Global Design System (SHARED — use these exact variables and classes)
+${globalSystem.rootCSS}
+
+## Shared Utility Classes
+.container { max-width: var(--content-width); margin: 0 auto; padding: 0 24px; }
+.section-header { text-align: center; max-width: 960px; margin: 0 auto 48px; }
+.btn-primary { display: inline-flex; align-items: center; justify-content: center; background: var(--text-primary); color: var(--white); padding: 14px 32px; border-radius: var(--radius-lg); font-size: 16px; font-weight: 600; }
+.btn-secondary { display: inline-flex; align-items: center; justify-content: center; background: var(--surface-6); color: var(--text-primary); padding: 14px 32px; border-radius: var(--radius-lg); font-size: 16px; font-weight: 500; }
+
+## Page Context
 - Page: "${page.name}", width: ${page.width}px
-- Section: "${section.name}"
+- Section: "${section.name}" (position ${parseInt(section.id.replace("section-", "")) + 1} of page)
+${neighborInfo.length > 0 ? "- " + neighborInfo.join("\n- ") : ""}
 - Section type: ${kind}
 - Section nodes: ${section.nodeIds.length}
-
-## Design Tokens
-${tokenStr}
 
 ## Section Structure
 ${treeStr}
 
 ## Instructions
-1. Analyze the section structure and determine its semantic purpose (navbar, hero, features, testimonials, footer, etc.)
-2. Use the most appropriate HTML5 semantic tag as the root (<nav>, <section>, <header>, <footer>, etc.)
-3. Class names should be meaningful: .navbar, .hero-content, .btn-primary, .feature-title, etc.
-4. Use the design tokens as CSS variables
-5. Match the layout structure (flex direction, gaps, alignment)
-6. Include all text and images exactly
-7. Output ONLY the HTML section, no wrapper html/head/body tags
+1. Analyze the section and determine its semantic purpose (navbar, hero, features, testimonials, footer, CTA, etc.)
+2. Use the most appropriate HTML5 semantic tag as the root: <nav>, <section>, <header>, <footer>, <article>
+3. Class names must be meaningful and consistent: .navbar, .hero-content, .btn-primary, .feature-title, .testimonial-card
+4. Use ONLY the CSS variables from the Global Design System above — never hardcode colors or spacing
+5. For centered content, wrap in <div class="container"> using the shared utility class
+6. Buttons should use .btn-primary or .btn-secondary classes when stylistically appropriate
+7. Section headers should use .section-header structure when applicable
+8. Match the layout structure (flex direction, gaps, alignment) from the design
+9. Include all text and images exactly as specified
+10. Output ONLY the HTML section, no wrapper html/head/body tags, no <style> tags
 
 Generate the semantic HTML now:`;
 }
 
-function buildCompactTree(
-  node: DSLNode,
-  nodeMap: Map<string, DSLNode>,
-  depth: number,
-): string {
-  const indent = "  ".repeat(depth);
-  const type = node.type;
-  const name = node.name || "unnamed";
-
-  let details = "";
-
-  // 布局
-  const layoutParts: string[] = [];
-  if (node.layout.mode) layoutParts.push(`mode:${node.layout.mode}`);
-  if (node.layout.direction) layoutParts.push(`dir:${node.layout.direction}`);
-  if (node.layout.justify) layoutParts.push(`justify:${node.layout.justify}`);
-  if (node.layout.align) layoutParts.push(`align:${node.layout.align}`);
-  if (node.layout.gap !== undefined) layoutParts.push(`gap:${node.layout.gap}`);
-  if (node.layout.width !== undefined) layoutParts.push(`w:${node.layout.width}`);
-  if (node.layout.height !== undefined) layoutParts.push(`h:${node.layout.height}`);
-
-  // 样式
-  const styleParts: string[] = [];
-  if (node.style.background) styleParts.push(`bg:${truncate(node.style.background, 30)}`);
-  if (node.style.color) styleParts.push(`color:${node.style.color}`);
-  if (node.style.fontSize) styleParts.push(`fs:${node.style.fontSize}px`);
-  if (node.style.fontWeight) styleParts.push(`fw:${node.style.fontWeight}`);
-  if (node.style.borderRadius) styleParts.push(`radius:${node.style.borderRadius.topLeft}px`);
-  if (node.style.padding) styleParts.push(`pad:${node.style.padding.top}/${node.style.padding.right}/${node.style.padding.bottom}/${node.style.padding.left}`);
-
-  // 内容
-  let content = "";
-  if (node.content?.text) content = ` text:"${truncate(node.content.text, 50)}"`;
-  if (node.content?.src) content = ` img:"${truncate(node.content.src, 40)}"`;
-
-  const layoutStr = layoutParts.length > 0 ? ` [${layoutParts.join(", ")}]` : "";
-  const styleStr = styleParts.length > 0 ? ` {${styleParts.join(", ")}}` : "";
-
-  let result = `${indent}${type} "${name}"${layoutStr}${styleStr}${content}`;
-
-  for (const childId of node.children) {
-    const child = nodeMap.get(childId);
-    if (child) {
-      result += "\n" + buildCompactTree(child, nodeMap, depth + 1);
-    }
-  }
-
-  return result;
-}
-
-function buildTokenSummary(tokens: DesignTokens): string {
-  const lines: string[] = [];
-
-  if (tokens.colors.variables.size > 0) {
-    lines.push("Colors:");
-    for (const [name, value] of tokens.colors.variables) {
-      lines.push(`  ${name}: ${value}`);
-    }
-  }
-
-  if (tokens.fonts.variables.size > 0) {
-    lines.push("Fonts:");
-    for (const [name, value] of tokens.fonts.variables) {
-      lines.push(`  ${name}: ${value}`);
-    }
-  }
-
-  if (tokens.spacings.variables.size > 0) {
-    lines.push("Spacings:");
-    for (const [name, value] of tokens.spacings.variables) {
-      lines.push(`  ${name}: ${value}`);
-    }
-  }
-
-  if (tokens.radii.variables.size > 0) {
-    lines.push("Radii:");
-    for (const [name, value] of tokens.radii.variables) {
-      lines.push(`  ${name}: ${value}`);
-    }
-  }
-
-  return lines.join("\n") || "  (no tokens extracted)";
-}
-
-function truncate(str: string, max: number): string {
-  if (str.length <= max) return str;
-  return str.slice(0, max) + "...";
-}
-
 /**
- * 解析 LLM 输出，提取 HTML + CSS
+ * 解析 LLM 输出，提取 HTML
  */
 function parseLLMOutput(text: string, _sectionName: string): SectionHTMLResult {
-  // 去除首尾空白和 markdown 代码围栏
   let html = text.trim();
 
-  // 去掉开头的 ```html 或 ```
   html = html.replace(/^```html\s*\n?/i, "");
   html = html.replace(/^```\s*\n?/, "");
-
-  // 去掉结尾的 ```
   html = html.replace(/\n?```\s*$/, "");
 
-  // 提取所有 class 名
   const classNames: string[] = [];
   const classRegex = /class="([^"]*)"/g;
   let m: RegExpExecArray | null;
@@ -249,15 +185,29 @@ function parseLLMOutput(text: string, _sectionName: string): SectionHTMLResult {
     });
   }
 
-  // 提取根标签
   const tagMatch = html.match(/^\s*<([a-zA-Z0-9-]+)/);
   const semanticTag = tagMatch ? tagMatch[1] : "section";
 
-  // CSS 通常在 style 标签内或单独块
-  const styleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/);
-  const css = styleMatch ? styleMatch[1].trim() : "";
+  // 拒绝包含 <style> 的输出（应该使用共享 CSS）
+  if (html.includes("<style")) {
+    html = html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "").trim();
+  }
 
-  return { html, css, classNames, semanticTag };
+  if (!isValidHTML(html)) {
+    return { html: "", classNames: [], semanticTag: "div" };
+  }
+
+  return { html, classNames, semanticTag };
+}
+
+function isValidHTML(html: string): boolean {
+  const tagPairs = ["section", "div", "nav", "header", "footer", "article", "main"];
+  for (const tag of tagPairs) {
+    const open = (html.match(new RegExp(`<${tag}[^>]*>`, "gi")) || []).length;
+    const close = (html.match(new RegExp(`</${tag}>`, "gi")) || []).length;
+    if (open !== close) return false;
+  }
+  return true;
 }
 
 /**
@@ -268,6 +218,7 @@ export async function generateAllSemanticSections(
   sections: Section[],
   nodeMap: Map<string, DSLNode>,
   tokens: DesignTokens,
+  globalSystem: GlobalDesignSystem,
   options?: {
     llmClient?: LLMClient;
     classifyFn?: (types: string[]) => string;
@@ -277,21 +228,52 @@ export async function generateAllSemanticSections(
   const classify = options?.classifyFn ?? defaultClassify;
   const results = new Map<string, SectionHTMLResult>();
 
-  // 并行生成所有 section
-  const promises = sections.map(async (section) => {
+  const CONCURRENCY = 3;
+  console.log(`\n[Section Generation] 共 ${sections.length} 个 Section，并发 ${CONCURRENCY} 路 LLM 生成...`);
+  const totalStart = Date.now();
+
+  async function runWithConcurrency<T>(items: T[], fn: (item: T) => Promise<void>, limit: number) {
+    const queue = [...items];
+    const workers: Promise<void>[] = [];
+
+    for (let i = 0; i < Math.min(limit, queue.length); i++) {
+      workers.push(worker());
+    }
+
+    async function worker() {
+      while (queue.length > 0) {
+        const item = queue.shift()!;
+        await fn(item);
+      }
+    }
+
+    await Promise.all(workers);
+  }
+
+  await runWithConcurrency(sections, async (section) => {
     const root = nodeMap.get(section.nodeId);
     if (!root) return;
 
     const types = collectNodeTypes(root, nodeMap);
     const kind = classify(types) as SectionKind;
 
+    const idx = sections.findIndex(s => s.id === section.id);
+    const neighbors = {
+      prev: idx > 0 ? sections[idx - 1].name : undefined,
+      next: idx < sections.length - 1 ? sections[idx + 1].name : undefined,
+    };
+
     const result = await generateSemanticSectionHTML(
-      section, dsl, nodeMap, tokens, kind, options,
+      section, dsl, nodeMap, tokens, kind, globalSystem, neighbors, options,
     );
     results.set(section.id, result);
-  });
+  }, CONCURRENCY);
 
-  await Promise.all(promises);
+  const totalElapsed = ((Date.now() - totalStart) / 1000).toFixed(1);
+  const successCount = sections.filter(s => results.get(s.id)?.html).length;
+  const fallbackCount = sections.length - successCount;
+  console.log(`[Section Generation] 全部完成 (${totalElapsed}s) — LLM: ${successCount}, Fallback: ${fallbackCount}\n`);
+
   return results;
 }
 

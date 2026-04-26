@@ -77,37 +77,37 @@ describe("Performance Benchmarks", () => {
     expect(elapsed).toBeLessThan(100);
   });
 
-  it("generates preview HTML in < 500ms", () => {
+  it("generates preview HTML in < 500ms", async () => {
     const start = performance.now();
-    generatePreviewHTML(dsl);
+    await generatePreviewHTML(dsl, { useLLM: false });
     const elapsed = performance.now() - start;
     expect(elapsed).toBeLessThan(500);
   });
 
-  it("generates React app in < 500ms", () => {
+  it("generates React app in < 500ms", async () => {
     const start = performance.now();
-    generateReactApp(dsl);
+    await generateReactApp(dsl);
     const elapsed = performance.now() - start;
     expect(elapsed).toBeLessThan(500);
   });
 
-  it("incremental update completes in < 1s", () => {
+  it("incremental update completes in < 1s", async () => {
     const patches = [
       { targetNodeId: "n-0-0", op: "updateStyle", payload: { color: "red" } },
     ];
 
     const start = performance.now();
-    incrementalRegenerate(dsl, patches, null);
+    await incrementalRegenerate(dsl, patches, null);
     const elapsed = performance.now() - start;
 
     expect(elapsed).toBeLessThan(1000);
   });
 
-  it("handles 50-section DSL without excessive memory", () => {
+  it("handles 50-section DSL without excessive memory", async () => {
     const largeDSL = generateLargeDSL(50, 10);
     const memBefore = process.memoryUsage().heapUsed;
 
-    generateReactApp(largeDSL);
+    await generateReactApp(largeDSL);
 
     const memAfter = process.memoryUsage().heapUsed;
     const memDeltaMB = (memAfter - memBefore) / 1024 / 1024;
