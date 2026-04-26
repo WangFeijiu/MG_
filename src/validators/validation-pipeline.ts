@@ -27,7 +27,8 @@ export type SectionValidationResult = {
   sectionId: string;
   sectionName: string;
   kind: SectionKind;
-  diffPercent: number;
+  htmlDiffPercent: number;
+  reactDiffPercent: number;
   converged: boolean;
   attempts: number;
   corrected: boolean;
@@ -35,7 +36,8 @@ export type SectionValidationResult = {
 
 export type PipelineResult = {
   results: SectionValidationResult[];
-  totalDiff: number;
+  totalHTMLDiff: number;
+  totalReactDiff: number;
   allConverged: boolean;
   baselineSource: string;
 };
@@ -192,9 +194,9 @@ export async function runValidationPipeline(
       results: sections.map(s => ({
         sectionId: s.id, sectionName: s.name,
         kind: classifySection(collectNodeTypes(nodeMap.get(s.nodeId)!, nodeMap)) as SectionKind,
-        diffPercent: 0, converged: true, attempts: 0, corrected: false,
+        htmlDiffPercent: 0, reactDiffPercent: 0, converged: true, attempts: 0, corrected: false,
       })),
-      totalDiff: 0, allConverged: true,
+      totalHTMLDiff: 0, totalReactDiff: 0, allConverged: true,
       baselineSource: "unavailable (Puppeteer failed)",
     };
   }
@@ -204,6 +206,28 @@ export async function runValidationPipeline(
   const sectionBounds = getSectionYBounds(sections, nodeMap);
 
   try {
+    // 截取 preview.html 各 section 截图（HTML 还原度）
+    const previewScreenshots: PNG[] = [];
+    for (let i = 0; i < sections.length; i++) {
+      const root = nodeMap.get(sections[i].nodeId);
+      if (!root) { previewScreenshots.push(new PNG({ width: 1, height: 1 })); continue; }
+      const bounds = sectionBounds.get(sections[i].id);
+      const fullPNG = await screenshotFullPage(browser, previewHTML, pageWidth);
+      if (bounds) {
+        previewScreenshots.push(cropPNG(fullPNG, 0, bounds.y, pageWidth, bounds.height));
+      } else {
+        previewScreenshots.push(fullPNG);
+      }
+    }
+
+    // 读取 baseline 或生成 fallback
+    const baselinePNGPath = join(outputDir, "design-baseline.png");
+    const hasBaseline = existsSync(baselinePNGPath);
+    let baselineFull: PNG | null = null;
+    if (hasBaseline) {
+      baselineFull = PNG.sync.read(readFileSync(baselinePNGPath));
+    }
+
     for (let i = 0; i < sections.length; i++) {
       const section = sections[i];
       const sectionRoot = nodeMap.get(section.nodeId);
@@ -212,44 +236,39 @@ export async function runValidationPipeline(
       const nodeTypes = collectNodeTypes(sectionRoot, nodeMap);
       const kind = classifySection(nodeTypes);
 
-      // Generated: render React code as HTML → screenshot
-      const reactHTML = buildReactHTML(reactOutput, i);
-      const generatedPNG = await screenshotFullPage(browser, reactHTML, pageWidth);
-
-      // Baseline: design screenshot or fallback to preview.html
+      // Baseline section crop
       let baselinePNG: PNG;
-      let baselineSource: string;
-
-      if (hasBaseline) {
-        const fullBaseline = PNG.sync.read(readFileSync(baselinePNGPath));
+      if (baselineFull) {
         const bounds = sectionBounds.get(section.id);
-        if (bounds) {
-          baselinePNG = cropPNG(fullBaseline, 0, bounds.y, pageWidth, bounds.height);
-        } else {
-          baselinePNG = fullBaseline;
-        }
-        baselineSource = "design-baseline.png";
+        baselinePNG = bounds
+          ? cropPNG(baselineFull, 0, bounds.y, pageWidth, bounds.height)
+          : baselineFull;
       } else {
-        baselinePNG = await screenshotFullPage(browser, previewHTML, pageWidth);
-        baselineSource = "preview.html (no baseline image)";
+        baselinePNG = previewScreenshots[i];
       }
 
-      const diffPercent = comparePNGs(baselinePNG, generatedPNG);
+      // HTML diff: preview.html vs baseline
+      const htmlDiff = comparePNGs(previewScreenshots[i], baselinePNG);
+
+      // React diff: React code rendering vs baseline
+      const reactHTML = buildReactHTML(reactOutput, i);
+      const generatedPNG = await screenshotFullPage(browser, reactHTML, pageWidth);
+      const reactDiff = comparePNGs(generatedPNG, baselinePNG);
 
       const result: SectionValidationResult = {
         sectionId: section.id,
         sectionName: section.name,
         kind,
-        diffPercent,
-        converged: !shouldReport(diffPercent, kind),
+        htmlDiffPercent: htmlDiff,
+        reactDiffPercent: reactDiff,
+        converged: !shouldReport(reactDiff, kind),
         attempts: 1,
         corrected: false,
       };
 
-      // LLM correction loop
-      if (shouldReport(diffPercent, kind) && enableLLM) {
+      // LLM correction on React code if diff too high
+      if (shouldReport(reactDiff, kind) && enableLLM) {
         let currentCode = reactOutput.sections[i]?.code || "";
-
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           result.attempts = attempt;
           try {
@@ -257,7 +276,7 @@ export async function runValidationPipeline(
             const engine = new CorrectionEngine(llm, 1);
             const correction = await engine.correctSection(currentCode, {
               sectionId: section.id,
-              diffPercent: result.diffPercent,
+              diffPercent: result.reactDiffPercent,
               nodeTypes,
             });
             currentCode = correction.correctedCode;
@@ -274,15 +293,19 @@ export async function runValidationPipeline(
     await browser.close();
   }
 
-  const totalDiff = results.length > 0
-    ? results.reduce((sum, r) => sum + r.diffPercent, 0) / results.length
+  const totalHTMLDiff = results.length > 0
+    ? results.reduce((sum, r) => sum + r.htmlDiffPercent, 0) / results.length
+    : 0;
+  const totalReactDiff = results.length > 0
+    ? results.reduce((sum, r) => sum + r.reactDiffPercent, 0) / results.length
     : 0;
 
   return {
     results,
-    totalDiff,
+    totalHTMLDiff,
+    totalReactDiff,
     allConverged: results.every(r => r.converged),
-    baselineSource: hasBaseline ? "design-baseline.png" : "preview.html (fallback)",
+    baselineSource: hasBaseline ? "design-baseline.png" : "preview.html (no baseline, HTML diff=0)",
   };
 }
 

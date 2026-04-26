@@ -215,9 +215,9 @@ async function main() {
       console.log(`   对比完成: ${validation.results.length} sections`);
       for (const r of validation.results) {
         const icon = r.converged ? "✅" : "⚠️";
-        console.log(`   ${icon} ${r.sectionName} (${r.kind}) — diff: ${(r.diffPercent * 100).toFixed(1)}% — ${r.attempts} attempts${r.corrected ? " (LLM corrected)" : ""}`);
+        console.log(`   ${icon} ${r.sectionName} (${r.kind}) — HTML: ${(r.htmlDiffPercent * 100).toFixed(1)}% | React: ${(r.reactDiffPercent * 100).toFixed(1)}% — ${r.attempts} attempts${r.corrected ? " (LLM corrected)" : ""}`);
       }
-      console.log(`   平均差异: ${(validation.totalDiff * 100).toFixed(1)}% | ${validation.allConverged ? "全部收敛" : "部分未收敛"}\n`);
+      console.log(`   平均差异: HTML ${(validation.totalHTMLDiff * 100).toFixed(1)}% | React ${(validation.totalReactDiff * 100).toFixed(1)}% | ${validation.allConverged ? "全部收敛" : "部分未收敛"}\n`);
     } catch (err: any) {
       console.log(`   ⚠️  截图对比跳过: ${err.message}\n`);
     }
@@ -307,9 +307,9 @@ async function rebuildOnly(outputDir: string) {
       console.log(`   对比完成: ${validation.results.length} sections`);
       for (const r of validation.results) {
         const icon = r.converged ? "✅" : "⚠️";
-        console.log(`   ${icon} ${r.sectionName} (${r.kind}) — diff: ${(r.diffPercent * 100).toFixed(1)}% — ${r.attempts} attempts${r.corrected ? " (LLM corrected)" : ""}`);
+      console.log(`   ${icon} ${r.sectionName} (${r.kind}) — HTML: ${(r.htmlDiffPercent * 100).toFixed(1)}% | React: ${(r.reactDiffPercent * 100).toFixed(1)}% — ${r.attempts} attempts${r.corrected ? " (LLM corrected)" : ""}`);
       }
-      console.log(`   平均差异: ${(validation.totalDiff * 100).toFixed(1)}% | ${validation.allConverged ? "全部收敛" : "部分未收敛"}\n`);
+      console.log(`   平均差异: HTML ${(validation.totalHTMLDiff * 100).toFixed(1)}% | React ${(validation.totalReactDiff * 100).toFixed(1)}% | ${validation.allConverged ? "全部收敛" : "部分未收敛"}\n`);
     } catch (err: any) {
       console.log(`   ⚠️  截图对比跳过: ${err.message}\n`);
     }
