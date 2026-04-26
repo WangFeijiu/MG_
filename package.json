@@ -30,16 +30,18 @@
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
-    "express": "^4.21.2",
-    "ws": "^8.18.0",
+    "cors": "^2.8.5",
     "dotenv": "^17.4.2",
-    "cors": "^2.8.5"
+    "express": "^4.21.2",
+    "pixelmatch": "^7.1.0",
+    "png-js": "^2.0.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
-    "@types/node": "^22.10.5",
-    "@types/express": "^5.0.0",
-    "@types/ws": "^8.5.13",
     "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.5",
+    "@types/ws": "^8.5.13",
     "@typescript-eslint/eslint-plugin": "^8.19.1",
     "@typescript-eslint/parser": "^8.19.1",
     "@vitest/coverage-v8": "^2.1.8",
