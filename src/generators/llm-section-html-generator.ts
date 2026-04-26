@@ -228,10 +228,16 @@ function truncate(str: string, max: number): string {
 /**
  * 解析 LLM 输出，提取 HTML + CSS
  */
-function parseLLMOutput(text: string, sectionName: string): SectionHTMLResult {
-  // 提取代码块
-  const codeBlockMatch = text.match(/```(?:html)?\s*\n?([\s\S]*?)```/);
-  const html = codeBlockMatch ? codeBlockMatch[1].trim() : text.trim();
+function parseLLMOutput(text: string, _sectionName: string): SectionHTMLResult {
+  // 去除首尾空白和 markdown 代码围栏
+  let html = text.trim();
+
+  // 去掉开头的 ```html 或 ```
+  html = html.replace(/^```html\s*\n?/i, "");
+  html = html.replace(/^```\s*\n?/, "");
+
+  // 去掉结尾的 ```
+  html = html.replace(/\n?```\s*$/, "");
 
   // 提取所有 class 名
   const classNames: string[] = [];
@@ -244,11 +250,11 @@ function parseLLMOutput(text: string, sectionName: string): SectionHTMLResult {
   }
 
   // 提取根标签
-  const tagMatch = html.match(/^<([a-zA-Z0-9-]+)/);
+  const tagMatch = html.match(/^\s*<([a-zA-Z0-9-]+)/);
   const semanticTag = tagMatch ? tagMatch[1] : "section";
 
   // CSS 通常在 style 标签内或单独块
-  const styleMatch = text.match(/<style[^>]*>([\s\S]*?)<\/style>/);
+  const styleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/);
   const css = styleMatch ? styleMatch[1].trim() : "";
 
   return { html, css, classNames, semanticTag };
