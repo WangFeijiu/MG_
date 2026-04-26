@@ -66,14 +66,18 @@ export async function generatePreviewHTML(
 
   const sectionHTMLs: string[] = [];
   const sectionCSS: string[] = [];
+  const llmCoveredNodeIds = new Set<string>();
 
   for (const section of sections) {
     const semantic = semanticSections?.get(section.id);
 
     if (semantic && semantic.html.trim()) {
-      // 使用 LLM 生成的语义 HTML
-      sectionHTMLs.push(`<!-- Section: ${section.name} -->\n${semantic.html}`);
+      // 使用 LLM 生成的语义 HTML（去掉内联 style 标签，CSS 统一放到页面级）
+      const cleanHTML = stripStyleTags(semantic.html);
+      sectionHTMLs.push(`<!-- Section: ${section.name} -->\n${cleanHTML}`);
       if (semantic.css) sectionCSS.push(semantic.css);
+      // 标记该 section 下的节点已被 LLM 覆盖
+      for (const nid of section.nodeIds) llmCoveredNodeIds.add(nid);
     } else {
       // Fallback: 机械翻译
       const sectionRoot = nodeMap.get(section.nodeId);
@@ -86,17 +90,19 @@ export async function generatePreviewHTML(
 
   // Step 6: 统一 CSS
   const tokenCSS = generateCSSTokenBlock(tokens);
-  const classCSS = generateCSSClassBlock(classMap);
+
+  // 机械 CSS：只保留未被 LLM 覆盖的节点
+  const filteredClassCSS = filterCoveredClasses(classMap, llmCoveredNodeIds);
 
   const unifiedCSS = [
     "/* Design Tokens */",
     tokenCSS,
     "",
-    "/* Component Styles */",
-    classCSS,
-    "",
-    "/* LLM Section Styles */",
+    "/* Semantic Section Styles */",
     ...sectionCSS,
+    "",
+    "/* Component Styles (fallback) */",
+    filteredClassCSS,
   ].join("\n");
 
   const bodyHTML = sectionHTMLs.join("\n\n");
@@ -128,6 +134,30 @@ export async function generatePreviewHTML(
 ${bodyHTML}
 </body>
 </html>`;
+}
+
+// ========== CSS 工具 ==========
+
+function stripStyleTags(html: string): string {
+  return html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "").trim();
+}
+
+function filterCoveredClasses(classMap: CSSClassMap, coveredNodeIds: Set<string>): string {
+  const lines: string[] = [];
+  for (const [className, body] of classMap.classes) {
+    // 检查这个类是否只被已覆盖的节点使用
+    let allCovered = true;
+    for (const [nodeId, classes] of classMap.nodeClasses) {
+      if (classes.includes(className) && !coveredNodeIds.has(nodeId)) {
+        allCovered = false;
+        break;
+      }
+    }
+    if (!allCovered) {
+      lines.push(`.${className} {\n  ${body};\n}`);
+    }
+  }
+  return lines.join("\n\n");
 }
 
 // ========== 机械翻译（fallback） ==========

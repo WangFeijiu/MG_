@@ -67,14 +67,178 @@ function padPNG(src: PNG, width: number, height: number): PNG {
   return out;
 }
 
-function comparePNGs(a: PNG, b: PNG): number {
+type DiffAnalysis = {
+  diffPercent: number;
+  areas: Array<{ x: number; y: number; width: number; height: number }>;
+  features: string[];
+};
+
+function comparePNGs(a: PNG, b: PNG): DiffAnalysis {
   const width = Math.max(a.width, b.width);
   const height = Math.max(a.height, b.height);
   const paddedA = padPNG(a, width, height);
   const paddedB = padPNG(b, width, height);
   const diff = new PNG({ width, height });
   const diffPixels = pixelmatch(paddedA.data, paddedB.data, diff.data, width, height, { threshold: 0.1 });
-  return diffPixels / (width * height);
+
+  const areas = extractDiffAreas(diff, width, height);
+  const features = analyzeDiffFeatures(diff, paddedA, paddedB, width, height);
+
+  return {
+    diffPercent: diffPixels / (width * height),
+    areas,
+    features,
+  };
+}
+
+/** 从 pixelmatch diff buffer 中提取差异区域（bounding boxes） */
+function extractDiffAreas(diff: PNG, width: number, height: number): Array<{ x: number; y: number; width: number; height: number }> {
+  const changedPixels: Array<{ x: number; y: number }> = [];
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (width * y + x) << 2;
+      // pixelmatch 标记差异像素为红色 (255, 0, 0)
+      if (diff.data[idx] === 255 && diff.data[idx + 1] === 0 && diff.data[idx + 2] === 0) {
+        changedPixels.push({ x, y });
+      }
+    }
+  }
+
+  if (changedPixels.length === 0) return [];
+
+  // 简单的聚类：将相邻像素合并为区域
+  const regions: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
+  const visited = new Set<string>();
+
+  for (const pixel of changedPixels) {
+    const key = `${pixel.x},${pixel.y}`;
+    if (visited.has(key)) continue;
+
+    // BFS 找连通区域
+    let x1 = pixel.x, y1 = pixel.y, x2 = pixel.x, y2 = pixel.y;
+    const queue = [pixel];
+    visited.add(key);
+
+    while (queue.length > 0) {
+      const { x, y } = queue.shift()!;
+      x1 = Math.min(x1, x);
+      y1 = Math.min(y1, y);
+      x2 = Math.max(x2, x);
+      y2 = Math.max(y2, y);
+
+      const neighbors = [
+        { x: x + 1, y }, { x: x - 1, y },
+        { x, y: y + 1 }, { x, y: y - 1 },
+      ];
+      for (const n of neighbors) {
+        const nKey = `${n.x},${n.y}`;
+        if (n.x >= 0 && n.x < width && n.y >= 0 && n.y < height && !visited.has(nKey)) {
+          const nIdx = (width * n.y + n.x) << 2;
+          if (diff.data[nIdx] === 255 && diff.data[nIdx + 1] === 0 && diff.data[nIdx + 2] === 0) {
+            visited.add(nKey);
+            queue.push(n);
+          }
+        }
+      }
+    }
+
+    regions.push({ x1, y1, x2, y2 });
+  }
+
+  // 合并相近的小区域（距离 < 50px）
+  const merged = mergeNearbyRegions(regions, 50);
+
+  return merged.map(r => ({
+    x: r.x1,
+    y: r.y1,
+    width: r.x2 - r.x1 + 1,
+    height: r.y2 - r.y1 + 1,
+  }));
+}
+
+function mergeNearbyRegions(
+  regions: Array<{ x1: number; y1: number; x2: number; y2: number }>,
+  threshold: number,
+): Array<{ x1: number; y1: number; x2: number; y2: number }> {
+  if (regions.length <= 1) return regions;
+
+  const result = [...regions];
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    for (let i = 0; i < result.length; i++) {
+      for (let j = i + 1; j < result.length; j++) {
+        const a = result[i];
+        const b = result[j];
+        const dist = Math.min(
+          Math.abs(a.x2 - b.x1), Math.abs(b.x2 - a.x1),
+          Math.abs(a.y2 - b.y1), Math.abs(b.y2 - a.y1),
+        );
+        if (dist <= threshold) {
+          result[i] = {
+            x1: Math.min(a.x1, b.x1),
+            y1: Math.min(a.y1, b.y1),
+            x2: Math.max(a.x2, b.x2),
+            y2: Math.max(a.y2, b.y2),
+          };
+          result.splice(j, 1);
+          changed = true;
+          break;
+        }
+      }
+      if (changed) break;
+    }
+  }
+
+  return result;
+}
+
+/** 分析差异特征（颜色、布局、文字等） */
+function analyzeDiffFeatures(
+  diff: PNG,
+  a: PNG,
+  b: PNG,
+  width: number,
+  height: number,
+): string[] {
+  const features = new Set<string>();
+  let colorDiffCount = 0;
+  let structuralDiffCount = 0;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (width * y + x) << 2;
+      if (diff.data[idx] !== 255 || diff.data[idx + 1] !== 0 || diff.data[idx + 2] !== 0) continue;
+
+      // 检查是颜色差异还是结构性差异（某个图透明，另一个不透明）
+      const aAlpha = a.data[idx + 3];
+      const bAlpha = b.data[idx + 3];
+
+      if ((aAlpha > 10 && bAlpha > 10) || (aAlpha <= 10 && bAlpha <= 10)) {
+        colorDiffCount++;
+      } else {
+        structuralDiffCount++;
+      }
+    }
+  }
+
+  if (structuralDiffCount > colorDiffCount) {
+    features.add("Structural/layout differences (elements missing or extra)");
+  } else {
+    features.add("Color/style differences (same structure, different appearance)");
+  }
+
+  if (colorDiffCount > width * height * 0.05) {
+    features.add("Widespread color differences (likely background or theme mismatch)");
+  }
+
+  if (structuralDiffCount > width * height * 0.01) {
+    features.add("Significant structural changes (elements shifted or missing)");
+  }
+
+  return Array.from(features);
 }
 
 function cropPNG(src: PNG, x: number, y: number, w: number, h: number): PNG {
@@ -248,26 +412,26 @@ export async function runValidationPipeline(
       }
 
       // HTML diff: preview.html vs baseline
-      const htmlDiff = comparePNGs(previewScreenshots[i], baselinePNG);
+      const htmlAnalysis = comparePNGs(previewScreenshots[i], baselinePNG);
 
       // React diff: React code rendering vs baseline
       const reactHTML = buildReactHTML(reactOutput, i);
       const generatedPNG = await screenshotFullPage(browser, reactHTML, pageWidth);
-      const reactDiff = comparePNGs(generatedPNG, baselinePNG);
+      const reactAnalysis = comparePNGs(generatedPNG, baselinePNG);
 
       const result: SectionValidationResult = {
         sectionId: section.id,
         sectionName: section.name,
         kind,
-        htmlDiffPercent: htmlDiff,
-        reactDiffPercent: reactDiff,
-        converged: !shouldReport(reactDiff, kind),
+        htmlDiffPercent: htmlAnalysis.diffPercent,
+        reactDiffPercent: reactAnalysis.diffPercent,
+        converged: !shouldReport(reactAnalysis.diffPercent, kind),
         attempts: 1,
         corrected: false,
       };
 
       // LLM correction on React code if diff too high
-      if (shouldReport(reactDiff, kind) && enableLLM) {
+      if (shouldReport(reactAnalysis.diffPercent, kind) && enableLLM) {
         let currentCode = reactOutput.sections[i]?.code || "";
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           result.attempts = attempt;
@@ -278,6 +442,8 @@ export async function runValidationPipeline(
               sectionId: section.id,
               diffPercent: result.reactDiffPercent,
               nodeTypes,
+              diffAreas: reactAnalysis.areas,
+              diffFeatures: reactAnalysis.features,
             });
             currentCode = correction.correctedCode;
             result.corrected = true;
