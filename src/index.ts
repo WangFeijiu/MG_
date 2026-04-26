@@ -20,8 +20,6 @@ import { convertMasterGoToMachine } from "./converters/mastergo-to-machine.js";
 import { generatePreviewHTML } from "./generators/html-preview.js";
 import { generateReactApp } from "./generators/react-section-generator.js";
 import { applyPatches } from "./utils/patch.js";
-import { extractDesignTokens } from "./generators/token-extractor.js";
-import { buildCSSClasses } from "./generators/css-optimizer.js";
 import { splitSections } from "./generators/section-splitter.js";
 import { runValidationPipeline } from "./validators/validation-pipeline.js";
 
@@ -203,14 +201,13 @@ async function main() {
   if (!skipValidate) {
     console.log("📸 Step 6: Section 级截图对比...");
     try {
-      const tokens = extractDesignTokens(finalDSL);
       const nodeMap = new Map<string, any>();
       for (const node of finalDSL.nodes) nodeMap.set(node.id, node);
-      const classMap = buildCSSClasses(finalDSL.nodes, nodeMap, tokens);
       const sections = splitSections(finalDSL);
+      const previewHTML = generatePreviewHTML(finalDSL);
 
       const validation = await runValidationPipeline(
-        finalDSL, sections, nodeMap, classMap, tokens,
+        finalDSL, sections, nodeMap, reactOutput, previewHTML,
         { maxAttempts: 3, enableLLMCorrection: !!process.env.LLM_API_KEY },
       );
 
@@ -296,14 +293,13 @@ async function rebuildOnly(outputDir: string) {
   if (!skipValidate) {
     console.log("📸 Section 级截图对比...");
     try {
-      const tokens = extractDesignTokens(dsl);
       const nodeMap = new Map<string, any>();
       for (const node of dsl.nodes) nodeMap.set(node.id, node);
-      const classMap = buildCSSClasses(dsl.nodes, nodeMap, tokens);
       const sections = splitSections(dsl);
+      const previewHTML = generatePreviewHTML(dsl);
 
       const validation = await runValidationPipeline(
-        dsl, sections, nodeMap, classMap, tokens,
+        dsl, sections, nodeMap, reactOutput, previewHTML,
         { maxAttempts: 3, enableLLMCorrection: !!process.env.LLM_API_KEY },
       );
 

@@ -2,22 +2,23 @@
  * Section 级截图对比 + 自动修正管线
  *
  * 流程:
- * 1. 每个 Section 生成独立 HTML
- * 2. Puppeteer 渲染截图
- * 3. 和设计稿对应区域对比
+ * 1. 设计稿预览 HTML (preview.html) → 按 Section 裁剪截图 A（baseline）
+ * 2. React 代码组装成 HTML → 按 Section 裁剪截图 B（generated）
+ * 3. pixelmatch 对比 A vs B
  * 4. 差异 > 阈值 → LLM 修正 → 重新对比（最多 N 次）
  */
 
-import puppeteer, { type Browser } from "puppeteer";
+import puppeteer, { type Browser, type Page } from "puppeteer";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { MachineDSL, DSLNode } from "../types/machine-dsl.js";
 import type { Section } from "../generators/section-splitter.js";
-import type { DesignTokens } from "../generators/token-extractor.js";
-import type { CSSClassMap } from "../generators/css-optimizer.js";
 import { classifySection, shouldReport, type SectionKind } from "../validators/tolerance.js";
 import { CorrectionEngine, type DiffRegion } from "../validators/correction-engine.js";
 import { LLMClient } from "../llm/llm-client.js";
+import type { ReactOutput } from "../generators/react-section-generator.js";
 
 export type SectionValidationResult = {
   sectionId: string;
@@ -35,101 +36,6 @@ export type PipelineResult = {
   allConverged: boolean;
 };
 
-function renderSectionHTML(
-  sectionRoot: DSLNode,
-  nodeMap: Map<string, DSLNode>,
-  classMap: CSSClassMap,
-  tokens: DesignTokens,
-  pageWidth: number,
-): string {
-  function renderNode(node: DSLNode, indent: number): string {
-    const pad = "  ".repeat(indent);
-    const tag = node.type === "button" ? "button" : node.type === "text" ? "p" : "div";
-    const classes = [`dsl-node`, `dsl-${node.type}`];
-
-    const extraClasses = classMap.nodeClasses.get(node.id);
-    if (extraClasses) classes.push(...extraClasses);
-
-    const inlineStyles = classMap.nodeInlineStyles.get(node.id);
-    const classAttr = `class="${classes.join(" ")}"`;
-    const styleAttr = inlineStyles ? ` style="${inlineStyles}"` : "";
-    const dataAttr = ` data-dsl-id="${node.id}" data-dsl-type="${node.type}"`;
-
-    if (node.type === "image" && node.content?.src) {
-      const fit = node.style.objectFit || "cover";
-      const img = `<img src="${node.content.src}" style="width:100%;height:100%;object-fit:${fit}" />`;
-      return `${pad}<${tag} ${classAttr}${styleAttr}${dataAttr}>\n${pad}  ${img}\n${pad}</${tag}>`;
-    }
-
-    let textContent = "";
-    if (node.type === "text" && node.content?.text) {
-      textContent = node.content.text
-        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-        .replace(/{/g, "&#123;").replace(/}/g, "&#125;");
-    }
-
-    const children = node.children
-      .map(id => nodeMap.get(id))
-      .filter(Boolean)
-      .map(child => renderNode(child!, indent + 1))
-      .join("\n");
-
-    if (textContent) return `${pad}<${tag} ${classAttr}${styleAttr}${dataAttr}>${textContent}</${tag}>`;
-    if (!children) return `${pad}<${tag} ${classAttr}${styleAttr}${dataAttr} />`;
-    return `${pad}<${tag} ${classAttr}${styleAttr}${dataAttr}>\n${children}\n${pad}</${tag}>`;
-  }
-
-  let tokenCSS = "";
-  for (const group of [tokens.colors, tokens.fonts, tokens.spacings, tokens.radii, tokens.shadows]) {
-    for (const [varName, value] of group.variables) {
-      tokenCSS += `  ${varName}: ${value};\n`;
-    }
-  }
-
-  let classCSS = "";
-  for (const [cls, body] of classMap.classes) {
-    classCSS += `.${cls} {\n  ${body};\n}\n\n`;
-  }
-  for (const [nodeId, cssStr] of classMap.nodeInlineStyles) {
-    classCSS += `.node-${nodeId.slice(0, 8)} {\n  ${cssStr.replace(/;/g, ";\n  ")};\n}\n\n`;
-  }
-
-  const bodyHTML = renderNode(sectionRoot, 2);
-
-  return `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-:root {
-${tokenCSS}}
-* { margin:0; padding:0; box-sizing:border-box; }
-${classCSS}
-</style>
-</head>
-<body style="width:${pageWidth}px">
-${bodyHTML}
-</body>
-</html>`;
-}
-
-async function htmlToPNG(html: string, width: number, browser: Browser): Promise<PNG> {
-  const page = await browser.newPage();
-  await page.setViewport({ width, height: 800 });
-  await page.setContent(html, { waitUntil: "networkidle0" });
-  const screenshot = await page.screenshot({ type: "png", fullPage: true }) as Buffer;
-  await page.close();
-  return PNG.sync.read(screenshot);
-}
-
-function comparePNGs(a: PNG, b: PNG): number {
-  const width = Math.max(a.width, b.width);
-  const height = Math.max(a.height, b.height);
-  const diff = new PNG({ width, height });
-  const diffPixels = pixelmatch(a.data, b.data, diff.data, width, height, { threshold: 0.1 });
-  return diffPixels / (width * height);
-}
-
 function collectNodeTypes(node: DSLNode, nodeMap: Map<string, DSLNode>): string[] {
   const types = [node.type];
   for (const childId of node.children) {
@@ -139,12 +45,102 @@ function collectNodeTypes(node: DSLNode, nodeMap: Map<string, DSLNode>): string[
   return types;
 }
 
+async function screenshotHTMLSection(
+  browser: Browser,
+  html: string,
+  sectionNodeId: string,
+  pageWidth: number,
+): Promise<PNG> {
+  const page = await browser.newPage();
+  await page.setViewport({ width: pageWidth, height: 800 });
+  await page.setContent(html, { waitUntil: "networkidle0" });
+
+  const element = await page.$(`[data-dsl-id="${sectionNodeId}"]`);
+  let screenshot: Buffer;
+
+  if (element) {
+    screenshot = await element.screenshot({ type: "png" }) as Buffer;
+  } else {
+    screenshot = await page.screenshot({ type: "png", fullPage: true }) as Buffer;
+  }
+
+  await page.close();
+  return PNG.sync.read(screenshot);
+}
+
+function comparePNGs(a: PNG, b: PNG): number {
+  const width = Math.max(a.width, b.width);
+  const height = Math.max(a.height, b.height);
+
+  // Pad smaller image to match
+  const paddedA = padPNG(a, width, height);
+  const paddedB = padPNG(b, width, height);
+
+  const diff = new PNG({ width, height });
+  const diffPixels = pixelmatch(paddedA.data, paddedB.data, diff.data, width, height, { threshold: 0.1 });
+  return diffPixels / (width * height);
+}
+
+function padPNG(src: PNG, width: number, height: number): PNG {
+  if (src.width === width && src.height === height) return src;
+  const out = new PNG({ width, height });
+  // Copy src data into top-left of padded image
+  for (let y = 0; y < src.height; y++) {
+    for (let x = 0; x < src.width; x++) {
+      const srcIdx = (src.width * y + x) << 2;
+      const dstIdx = (width * y + x) << 2;
+      out.data[srcIdx] = src.data[srcIdx];
+      out.data[srcIdx + 1] = src.data[srcIdx + 1];
+      out.data[srcIdx + 2] = src.data[srcIdx + 2];
+      out.data[srcIdx + 3] = src.data[srcIdx + 3];
+    }
+  }
+  return out;
+}
+
+function buildReactHTML(reactOutput: ReactOutput, sectionIndex: number): string {
+  const section = reactOutput.sections[sectionIndex];
+  if (!section) return "";
+
+  const css = reactOutput.appCSS;
+
+  // Extract JSX body from section code (between return ( and );)
+  const code = section.code;
+  const returnMatch = code.match(/return\s*\(\s*\n([\s\S]*?)\n\s*\);/);
+  const jsxBody = returnMatch ? returnMatch[1] : "<div />";
+
+  // Convert JSX className to HTML class
+  const htmlBody = jsxBody
+    .replace(/className=/g, "class=")
+    .replace(/style=\{\{(.*?)\}\}/g, (_, styles) => {
+      const cssProps = styles
+        .replace(/(\w+):/g, (_, prop) => prop.replace(/([A-Z])/g, "-$1").toLowerCase() + ":")
+        .replace(/'([^']*)'/g, "$1")
+        .replace(/,\s*/g, "; ");
+      return `style="${cssProps}"`;
+    });
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+${css}
+</style>
+</head>
+<body>
+${htmlBody}
+</body>
+</html>`;
+}
+
 export async function runValidationPipeline(
   dsl: MachineDSL,
   sections: Section[],
   nodeMap: Map<string, DSLNode>,
-  classMap: CSSClassMap,
-  tokens: DesignTokens,
+  reactOutput: ReactOutput,
+  previewHTML: string,
   options?: { maxAttempts?: number; enableLLMCorrection?: boolean },
 ): Promise<PipelineResult> {
   const maxAttempts = options?.maxAttempts ?? 3;
@@ -168,58 +164,55 @@ export async function runValidationPipeline(
   const results: SectionValidationResult[] = [];
 
   try {
-    for (const section of sections) {
+    for (let i = 0; i < sections.length; i++) {
+      const section = sections[i];
       const sectionRoot = nodeMap.get(section.nodeId);
       if (!sectionRoot) continue;
 
       const nodeTypes = collectNodeTypes(sectionRoot, nodeMap);
       const kind = classifySection(nodeTypes);
 
-      const designHTML = renderSectionHTML(sectionRoot, nodeMap, classMap, tokens, pageWidth);
-      const designPNG = await htmlToPNG(designHTML, pageWidth, browser);
+      // Baseline: screenshot from preview.html (design)
+      const baselinePNG = await screenshotHTMLSection(browser, previewHTML, section.nodeId, pageWidth);
+
+      // Generated: screenshot from React code
+      const reactHTML = buildReactHTML(reactOutput, i);
+      const generatedPNG = await screenshotHTMLSection(browser, reactHTML, sectionRoot.id, pageWidth);
+
+      const diffPercent = comparePNGs(baselinePNG, generatedPNG);
 
       const result: SectionValidationResult = {
         sectionId: section.id,
         sectionName: section.name,
         kind,
-        diffPercent: 0,
-        converged: true,
-        attempts: 0,
+        diffPercent,
+        converged: !shouldReport(diffPercent, kind),
+        attempts: 1,
         corrected: false,
       };
 
-      let currentDesignPNG = designPNG;
+      // LLM correction loop if diff too high
+      if (shouldReport(diffPercent, kind) && enableLLM) {
+        let currentCode = reactOutput.sections[i]?.code || "";
 
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        result.attempts = attempt;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          result.attempts = attempt;
 
-        const generatedHTML = renderSectionHTML(sectionRoot, nodeMap, classMap, tokens, pageWidth);
-        const generatedPNG = await htmlToPNG(generatedHTML, pageWidth, browser);
-
-        const diffPercent = comparePNGs(currentDesignPNG, generatedPNG);
-        result.diffPercent = diffPercent;
-
-        if (!shouldReport(diffPercent, kind)) {
-          result.converged = true;
-          break;
-        }
-
-        if (enableLLM && attempt < maxAttempts) {
           const diff: DiffRegion = {
             sectionId: section.id,
-            diffPercent,
+            diffPercent: result.diffPercent,
             nodeTypes,
           };
 
-          const sectionCode = renderSectionHTML(sectionRoot, nodeMap, classMap, tokens, pageWidth);
-          const llm = new LLMClient();
-          const engine = new CorrectionEngine(llm, 1);
-          await engine.correctSection(sectionCode, diff);
-          result.corrected = true;
-        }
-
-        if (attempt === maxAttempts) {
-          result.converged = false;
+          try {
+            const llm = new LLMClient();
+            const engine = new CorrectionEngine(llm, 1);
+            const correction = await engine.correctSection(currentCode, diff);
+            currentCode = correction.correctedCode;
+            result.corrected = true;
+          } catch {
+            break;
+          }
         }
       }
 
