@@ -18,7 +18,7 @@ config();
 
 import { convertMasterGoToMachine } from "./converters/mastergo-to-machine.js";
 import { generatePreviewHTML } from "./generators/html-preview.js";
-import { generateReactCode } from "./generators/react-code.js";
+import { generateReactApp } from "./generators/react-section-generator.js";
 import { applyPatches } from "./utils/patch.js";
 
 import type { PatchDocument } from "./types/patch.js";
@@ -178,12 +178,21 @@ async function main() {
   console.log("🔧 Step 4: 检查并应用 Patch...");
   const finalDSL = await applyPatchesFromDir(outputDir, machineDSL);
 
-  // Step 5: 生成最终 React 代码（跳过，用户需要时可通过命令行单独生成）
-  // console.log("⚛️  Step 5: 生成 React 代码...");
-  // const reactCode = generateReactCode(finalDSL);
-  // const reactCodePath = join(outputDir, `${finalDSL.page.name}.tsx`);
-  // writeFileSync(reactCodePath, reactCode, "utf-8");
-  // console.log(`✅ React 组件已保存: ${reactCodePath}\n`);
+  // Step 5: 生成 React 代码
+  console.log("⚛️  Step 5: 生成 React 代码...");
+  const reactOutput = generateReactApp(finalDSL);
+  const reactDir = join(outputDir, "react");
+  const sectionsDir = join(reactDir, "sections");
+  if (!existsSync(reactDir)) mkdirSync(reactDir, { recursive: true });
+  if (!existsSync(sectionsDir)) mkdirSync(sectionsDir, { recursive: true });
+
+  writeFileSync(join(reactDir, "App.tsx"), reactOutput.appTSX, "utf-8");
+  writeFileSync(join(reactDir, "App.css"), reactOutput.appCSS, "utf-8");
+  for (const section of reactOutput.sections) {
+    writeFileSync(join(sectionsDir, section.fileName), section.code, "utf-8");
+  }
+  console.log(`✅ React 代码已保存: ${reactDir}/`);
+  console.log(`   App.tsx + App.css + ${reactOutput.sections.length} sections\n`);
 
   // Step 4b: 保存应用 patch 后的 DSL
   console.log("💾 Step 4b: 保存应用 patch 后的 DSL...");
