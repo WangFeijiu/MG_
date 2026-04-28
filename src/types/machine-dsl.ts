@@ -88,5 +88,6 @@ export type DSLNode = {
   meta?: {
     sourceNodeId?: string;
     componentHint?: string;
+    semanticType?: string;
   };
 };

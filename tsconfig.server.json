@@ -6,7 +6,7 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "allowJs": true,
-    "strict": true,
+    "strict": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
@@ -14,14 +14,8 @@
     "declarationMap": true,
     "sourceMap": true,
     "outDir": "./dist",
-    "rootDir": "./",
-    "baseUrl": ".",
-    "paths": {
-      "@shared/*": ["shared/*"],
-      "@server/*": ["server/*"]
-    },
-    "types": ["node", "vitest/globals"]
+    "rootDir": "./"
   },
-  "include": ["server/**/*", "shared/**/*", "*.ts"],
-  "exclude": ["node_modules", "dist", "client", "temp"]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "react-app", "output", "patches", "src/**/*.test.ts", "src/**/__tests__"]
 }

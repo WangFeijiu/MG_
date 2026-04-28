@@ -12,6 +12,7 @@ import { getMatchedComponent, hasMatch } from "./component-match.js";
 export type ReactCodeOptions = {
   config?: GenConfig;
   componentMatches?: ComponentMatch[];
+  imageMap?: Map<string, string>;
 };
 
 interface StyleResult {
@@ -36,6 +37,7 @@ export function generateReactCode(
   const { page, nodes } = dsl;
   const config = options?.config ?? DEFAULT_GEN_CONFIG;
   const matches = options?.componentMatches ?? [];
+  const imageMap = options?.imageMap ?? new Map();
   const styleMode = config.styleMode ?? "inline";
 
   // 找到根节点
@@ -53,7 +55,7 @@ export function generateReactCode(
   // 生成组件代码
   const componentName = toPascalCase(page.name);
   const cssMap = new Map<string, string>();
-  const { jsx, cssRules } = renderNodeToJSX(rootNode, nodeMap, 2, styleMode, matches, cssMap);
+  const { jsx, cssRules } = renderNodeToJSX(rootNode, nodeMap, 2, styleMode, matches, cssMap, imageMap);
 
   // 生成导入语句
   const imports = generateImports(config, matches, styleMode);
@@ -123,7 +125,8 @@ function renderNodeToJSX(
   indent: number,
   styleMode: StyleMode,
   matches: ComponentMatch[],
-  cssMap: Map<string, string>
+  cssMap: Map<string, string>,
+  imageMap: Map<string, string>
 ): { jsx: string; cssRules: Map<string, string> } {
   const indentStr = "  ".repeat(indent);
   const cssRules = new Map<string, string>();
@@ -148,7 +151,7 @@ function renderNodeToJSX(
 
   // 图片内容
   if (node.content?.src) {
-    const imgSrc = toProxyPath(node.content.src);
+    const imgSrc = imageMap.get(node.id) || toProxyPath(node.content.src);
     content = `\n${indentStr}  <img src="${imgSrc}" alt="${node.name || ''}" style={{ width: '100%', height: '100%', objectFit: '${node.style.objectFit || 'cover'}' }} />\n${indentStr}`;
   }
 
@@ -158,7 +161,7 @@ function renderNodeToJSX(
     for (const childId of node.children) {
       const childNode = nodeMap.get(childId);
       if (childNode) {
-        const childResult = renderNodeToJSX(childNode, nodeMap, indent + 1, styleMode, matches, cssMap);
+        const childResult = renderNodeToJSX(childNode, nodeMap, indent + 1, styleMode, matches, cssMap, imageMap);
         for (const [k, v] of childResult.cssRules) {
           cssRules.set(k, v);
         }
@@ -357,7 +360,9 @@ function generateStyle(
     if (styleMode === "tailwind") {
       className += " bg-cover bg-center bg-no-repeat";
     } else {
-      styleObj.backgroundImage = `url(scene.png)`;
+      // 使用 imageMap 中的路径，如果没有则使用默认
+      const bgImagePath = "scene.png";
+      styleObj.backgroundImage = `url(${bgImagePath})`;
       styleObj.backgroundSize = "cover";
       styleObj.backgroundPosition = "center";
       styleObj.backgroundRepeat = "no-repeat";

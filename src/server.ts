@@ -5,8 +5,9 @@
  */
 
 import http from "node:http";
+import https from "node:https";
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, readdirSync, renameSync, mkdirSync, unlinkSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, renameSync, mkdirSync, unlinkSync, rmSync, createWriteStream } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -196,6 +197,101 @@ function saveGenConfig(config: any): void {
 }
 
 /**
+ * 下载图片资源
+ */
+async function downloadImages(dsl: any): Promise<Map<string, string>> {
+  const imageMap = new Map<string, string>();
+  const outputDir = join(REACT_APP_DIR, "public", "images");
+
+  // 确保输出目录存在
+  if (!existsSync(outputDir)) {
+    mkdirSync(outputDir, { recursive: true });
+  }
+
+  const nodes = dsl.nodes || [];
+  let downloadCount = 0;
+
+  for (const node of nodes) {
+    // 处理背景图片
+    if (node.style?.backgroundImage) {
+      const url = node.style.backgroundImage;
+      if (url.startsWith("http")) {
+        const filename = `bg-${node.id.slice(0, 8)}.jpg`;
+        const localPath = join(outputDir, filename);
+
+        try {
+          await downloadFile(url, localPath);
+          imageMap.set(node.id, `/images/${filename}`);
+          downloadCount++;
+        } catch (error) {
+          console.warn(`下载图片失败 ${url}:`, error);
+          imageMap.set(node.id, "/images/placeholder.jpg");
+        }
+      }
+    }
+
+    // 处理内容图片
+    if (node.content?.src) {
+      const url = node.content.src;
+      if (url.startsWith("http")) {
+        const filename = `img-${node.id.slice(0, 8)}.jpg`;
+        const localPath = join(outputDir, filename);
+
+        try {
+          await downloadFile(url, localPath);
+          imageMap.set(node.id, `/images/${filename}`);
+          downloadCount++;
+        } catch (error) {
+          console.warn(`下载图片失败 ${url}:`, error);
+          imageMap.set(node.id, "/images/placeholder.jpg");
+        }
+      }
+    }
+  }
+
+  console.log(`   成功下载 ${downloadCount} 张图片到 react-app/public/images/`);
+  return imageMap;
+}
+
+/**
+ * 下载单个文件
+ */
+function downloadFile(url: string, outputPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const protocol = url.startsWith("https") ? https : http;
+
+    protocol.get(url, (response) => {
+      // 处理重定向
+      if (response.statusCode === 301 || response.statusCode === 302) {
+        const redirectUrl = response.headers.location;
+        if (redirectUrl) {
+          downloadFile(redirectUrl, outputPath).then(resolve).catch(reject);
+          return;
+        }
+      }
+
+      if (response.statusCode !== 200) {
+        reject(new Error(`HTTP ${response.statusCode}`));
+        return;
+      }
+
+      const fileStream = createWriteStream(outputPath);
+      response.pipe(fileStream);
+
+      fileStream.on("finish", () => {
+        fileStream.close();
+        resolve();
+      });
+
+      fileStream.on("error", (err) => {
+        unlinkSync(outputPath);
+        reject(err);
+      });
+    }).on("error", reject);
+  });
+}
+
+/**
  * 清空 output 目录（保留文件夹本身）
  */
 function clearOutputDir(outputDir: string) {
@@ -359,7 +455,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
           console.warn("解析请求配置失败:", e);
         }
 
-        // 合并文件配置与请求配置
+        // 合并���件配置与请求配置
         const fileConfig = loadGenConfig();
         const mergedConfig = {
           ...fileConfig,
@@ -372,14 +468,18 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
         const dsl = JSON.parse(readFileSync(finalDSLPath, "utf-8"));
 
+        // 下载图片资源
+        const imageMap = await downloadImages(dsl);
+        console.log(`\n📷 已下载 ${imageMap.size} 张图片`);
+
         // 匹配组件
         let matches: any[] = [];
         if (config.components && config.components.length > 0) {
           matches = await matchComponents(dsl.nodes || [], config.components);
         }
 
-        // 生成代码
-        const result = generateReactCode(dsl, { config, componentMatches: matches });
+        // 生成代码（传入图片映射）
+        const result = generateReactCode(dsl, { config, componentMatches: matches, imageMap });
 
         // 确保 code 是字符串
         if (typeof result.code !== 'string') {

@@ -91,12 +91,14 @@ export function convertMasterGoToMachine(masterGoDSL: MasterGoDSL): MachineDSL {
       style: {},
       meta: {
         sourceNodeId: mgNode.id,
+        semanticType: classifyNodeSemantic(mgNode),
       },
     };
 
     // === 布局处理 ===
 
-    if (mgNode.flexContainerInfo) {
+    // 智能判断是否应该使用 flex 布局
+    if (mgNode.flexContainerInfo && shouldUseFlex(mgNode)) {
       // 这个节点本身是 flex 容器
       dslNode.layout.mode = "flex";
       dslNode.layout.direction = mgNode.flexContainerInfo.flexDirection || "row";
@@ -255,22 +257,312 @@ function mapNodeType(mgType: string, styles: Record<string, any>): DSLNode["type
 }
 
 /**
- * 解析样式引用
+ * 样式 Token 类型
+ */
+type StyleToken = {
+  type: "solid" | "gradient" | "image" | "none";
+  value: string;
+  metadata?: {
+    gradientType?: "linear" | "radial";
+    filename?: string;
+  };
+};
+
+/**
+ * 解析样式引用（增强版 - 支持类型推断）
  */
 function resolveStyle(styles: Record<string, any>, styleRef: string): string {
-  const style = styles[styleRef];
-  if (!style?.value) return "";
+  const token = resolveStyleToken(styles, styleRef);
+  return token.value;
+}
 
-  if (Array.isArray(style.value)) {
-    if (typeof style.value[0] === "string") {
-      return style.value[0];
+/**
+ * 解析样式引用为结构化 Token
+ */
+function resolveStyleToken(styles: Record<string, any>, styleRef: string): StyleToken {
+  const style = styles[styleRef];
+  if (!style?.value) {
+    return { type: "none", value: "" };
+  }
+
+  const value = style.value;
+
+  // 数组类型（可能是多个填充）
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return { type: "none", value: "" };
     }
-    if (style.value[0]?.url) {
-      return style.value[0].url;
+
+    const firstValue = value[0];
+
+    // 图片类型
+    if (typeof firstValue === "object" && firstValue.url) {
+      return {
+        type: "image",
+        value: firstValue.url,
+        metadata: {
+          filename: extractFilename(firstValue.url),
+        },
+      };
+    }
+
+    // 纯色字符串
+    if (typeof firstValue === "string") {
+      return parseColorOrGradient(firstValue);
     }
   }
 
-  return "";
+  // 字符串类型
+  if (typeof value === "string") {
+    return parseColorOrGradient(value);
+  }
+
+  return { type: "none", value: "" };
+}
+
+/**
+ * 解析颜色或渐变
+ */
+function parseColorOrGradient(value: string): StyleToken {
+  // 渐变检测
+  if (value.includes("linear-gradient") || value.includes("radial-gradient")) {
+    return {
+      type: "gradient",
+      value,
+      metadata: {
+        gradientType: value.includes("radial") ? "radial" : "linear",
+      },
+    };
+  }
+
+  // 纯色
+  if (
+    value.startsWith("#") ||
+    value.startsWith("rgb") ||
+    value.startsWith("hsl") ||
+    value.startsWith("rgba") ||
+    value.startsWith("hsla")
+  ) {
+    return { type: "solid", value };
+  }
+
+  // 其他情况当作纯色
+  return { type: "solid", value };
+}
+
+/**
+ * 从 URL 提取文件名
+ */
+function extractFilename(url: string): string {
+  try {
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname;
+    const parts = pathname.split("/");
+    return parts[parts.length - 1] || "image.jpg";
+  } catch {
+    return "image.jpg";
+  }
+}
+
+/**
+ * 节点语义分类
+ */
+function classifyNodeSemantic(mgNode: MasterGoNode): string {
+  const name = mgNode.name.toLowerCase();
+
+  // 按钮检测
+  if (
+    name.includes("button") ||
+    name.includes("btn") ||
+    name.includes("submit") ||
+    name.includes("confirm") ||
+    name.includes("cancel")
+  ) {
+    return "button";
+  }
+
+  // 输入框检测
+  if (
+    name.includes("input") ||
+    name.includes("field") ||
+    name.includes("textbox") ||
+    name.includes("search")
+  ) {
+    return "input";
+  }
+
+  // 卡片检测
+  if (
+    name.includes("card") ||
+    name.includes("panel") ||
+    name.includes("box")
+  ) {
+    return "card";
+  }
+
+  // 头像检测
+  if (
+    name.includes("avatar") ||
+    name.includes("profile") ||
+    name.includes("user")
+  ) {
+    return "avatar";
+  }
+
+  // 徽章检测
+  if (
+    name.includes("badge") ||
+    name.includes("tag") ||
+    name.includes("label") ||
+    name.includes("chip")
+  ) {
+    return "badge";
+  }
+
+  // 图标检测
+  if (
+    name.includes("icon") ||
+    name.includes("ico") ||
+    name.includes("symbol")
+  ) {
+    return "icon";
+  }
+
+  // 导航栏检测
+  if (
+    name.includes("nav") ||
+    name.includes("navbar") ||
+    name.includes("header") ||
+    name.includes("topbar")
+  ) {
+    return "navbar";
+  }
+
+  // 侧边栏检测
+  if (
+    name.includes("sidebar") ||
+    name.includes("aside") ||
+    name.includes("menu")
+  ) {
+    return "sidebar";
+  }
+
+  // 页脚检测
+  if (name.includes("footer") || name.includes("bottom")) {
+    return "footer";
+  }
+
+  // 列表检测
+  if (name.includes("list") || name.includes("item")) {
+    return "list";
+  }
+
+  // 模态框检测
+  if (
+    name.includes("modal") ||
+    name.includes("dialog") ||
+    name.includes("popup")
+  ) {
+    return "modal";
+  }
+
+  // 下拉菜单检测
+  if (
+    name.includes("dropdown") ||
+    name.includes("select") ||
+    name.includes("picker")
+  ) {
+    return "dropdown";
+  }
+
+  // 标签页检测
+  if (name.includes("tab") || name.includes("tabs")) {
+    return "tab";
+  }
+
+  // 默认
+  if (mgNode.type === "TEXT") {
+    return "text";
+  }
+
+  return "container";
+}
+
+/**
+ * 智能判断是否应该使用 flex 布局
+ */
+function shouldUseFlex(mgNode: MasterGoNode): boolean {
+  if (!mgNode.flexContainerInfo) return false;
+  if (!mgNode.children || mgNode.children.length < 2) return false;
+
+  const children = mgNode.children;
+
+  // 检查子节点是否有规律排列
+  const yPositions = children.map(c => c.layoutStyle.relativeY);
+  const xPositions = children.map(c => c.layoutStyle.relativeX);
+
+  // 计算 Y 坐标的平均值和最大偏差
+  const avgY = yPositions.reduce((a, b) => a + b, 0) / yPositions.length;
+  const maxYDeviation = Math.max(...yPositions.map(y => Math.abs(y - avgY)));
+
+  // 计算 X 坐标的平均值和最大偏差
+  const avgX = xPositions.reduce((a, b) => a + b, 0) / xPositions.length;
+  const maxXDeviation = Math.max(...xPositions.map(x => Math.abs(x - avgX)));
+
+  // 如果 Y 坐标偏差小于 10px，认为是行对齐（水平排列）
+  if (maxYDeviation < 10) {
+    // 检查 X 坐标是否递增（从左到右排列）
+    const isIncreasing = xPositions.every((x, i) => i === 0 || x >= xPositions[i - 1] - 5);
+    if (isIncreasing) {
+      return true; // 明确的行排列
+    }
+  }
+
+  // 如果 X 坐标偏差小于 10px，认为是列对齐（垂直排列）
+  if (maxXDeviation < 10) {
+    // 检查 Y 坐标是否递增（从上到下排列）
+    const isIncreasing = yPositions.every((y, i) => i === 0 || y >= yPositions[i - 1] - 5);
+    if (isIncreasing) {
+      return true; // 明确的列排列
+    }
+  }
+
+  // 检查是否是网格布局
+  if (isGridPattern(children)) {
+    return true;
+  }
+
+  // 如果子节点数量很多（>= 3）且有 flexContainerInfo，倾向于使用 flex
+  if (children.length >= 3) {
+    return true;
+  }
+
+  // 默认不使用 flex（使用 absolute）
+  return false;
+}
+
+/**
+ * 检查是否是网格布局模式
+ */
+function isGridPattern(children: MasterGoNode[]): boolean {
+  if (children.length < 4) return false;
+
+  // 按 Y 坐标分组（行）
+  const rowGroups = new Map<number, MasterGoNode[]>();
+  for (const child of children) {
+    const y = Math.round(child.layoutStyle.relativeY / 10) * 10; // 10px 容差
+    if (!rowGroups.has(y)) {
+      rowGroups.set(y, []);
+    }
+    rowGroups.get(y)!.push(child);
+  }
+
+  // 检查每行是否有相同数量的元素
+  const rowSizes = Array.from(rowGroups.values()).map(row => row.length);
+  const allSame = rowSizes.every(size => size === rowSizes[0]);
+
+  // 如果有至少 2 行，每行至少 2 个元素，且每行元素数量相同，认为是网格
+  return allSame && rowGroups.size >= 2 && rowSizes[0] >= 2;
 }
 
 /**
