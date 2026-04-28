@@ -21,6 +21,7 @@ import { generatePreviewHTML } from "./generators/html-preview.js";
 import { generateReactApp } from "./generators/react-section-generator.js";
 import { applyPatches } from "./utils/patch.js";
 import { splitSections } from "./generators/section-splitter.js";
+import { extractOriginalDslData } from "./converters/original-dsl-extractor.js";
 // import { runValidationPipeline } from "./validators/validation-pipeline.js"; // 暂时禁用视觉验证功能
 
 import type { PatchDocument } from "./types/patch.js";
@@ -169,7 +170,8 @@ async function main() {
 
   // Step 3: 生成预览 HTML
   console.log("🎨 Step 3: 生成预览 HTML...");
-  const previewHTML = await generatePreviewHTML(machineDSL);
+  const originalDslData = extractOriginalDslData(masterGoDSL);
+  const previewHTML = await generatePreviewHTML(machineDSL, { originalDslData });
 
   const previewHTMLPath = join(outputDir, "preview.html");
   writeFileSync(previewHTMLPath, previewHTML, "utf-8");
@@ -178,7 +180,9 @@ async function main() {
 
   // Step 4: 应用 Patch（如果存在）
   console.log("🔧 Step 4: 检查并应用 Patch...");
-  const finalDSL = await applyPatchesFromDir(outputDir, machineDSL);
+  const patchResult = await applyPatchesFromDir(outputDir, machineDSL);
+  const finalDSL = patchResult.dsl;
+  const hasPatches = patchResult.hasPatches;
 
   // Step 5: 生成 React 代码
   console.log("⚛️  Step 5: 生成 React 代码...");
@@ -234,12 +238,19 @@ async function main() {
   writeFileSync(finalDSLPath, JSON.stringify(finalDSL, null, 2), "utf-8");
   console.log(`✅ 应用 patch 后的 DSL 已保存: ${finalDSLPath}\n`);
 
-  // Step 5: 重新生成预览 HTML（包含 patch）
-  console.log("🎨 Step 5: 重新生成包含 patch 的预览 HTML...");
-  const finalPreviewHTML = await generatePreviewHTML(finalDSL);
-  const finalPreviewPath = join(outputDir, "preview-final.html");
-  writeFileSync(finalPreviewPath, finalPreviewHTML, "utf-8");
-  console.log(`✅ 最终预览 HTML 已保存: ${finalPreviewPath}\n`);
+  // Step 5: 仅在有 patch 时重新生成预览 HTML
+  if (hasPatches) {
+    console.log("🎨 Step 5: 重新生成包含 patch 的预览 HTML...");
+    const finalPreviewHTML = await generatePreviewHTML(finalDSL, { originalDslData });
+    const finalPreviewPath = join(outputDir, "preview-final.html");
+    writeFileSync(finalPreviewPath, finalPreviewHTML, "utf-8");
+    console.log(`✅ 最终预览 HTML 已保存: ${finalPreviewPath}\n`);
+
+    // 也更新 preview.html
+    writeFileSync(join(outputDir, "preview.html"), finalPreviewHTML, "utf-8");
+  } else {
+    console.log("⏭️  Step 5: 无 patch，跳过重新生成预览 HTML\n");
+  }
 
   console.log("🎉 完成！所有文件已生成到 output 目录");
 }
@@ -256,6 +267,19 @@ async function rebuildOnly(outputDir: string) {
     process.exit(1);
   }
 
+  // 尝试加载原始 DSL 数据
+  let originalDslData = null;
+  const originalDSLPath = join(outputDir, "original-dsl.json");
+  if (existsSync(originalDSLPath)) {
+    try {
+      const originalDSL = JSON.parse(readFileSync(originalDSLPath, "utf-8"));
+      originalDslData = extractOriginalDslData(originalDSL);
+      console.log("📖 已加载原始 DSL 数据");
+    } catch (e: any) {
+      console.warn(`⚠️ 加载原始 DSL 失败: ${e.message}`);
+    }
+  }
+
   console.log("📖 读取 machine-dsl.json...");
   let dsl = JSON.parse(readFileSync(machineDSLPath, "utf-8"));
 
@@ -269,7 +293,7 @@ async function rebuildOnly(outputDir: string) {
 
   // 生成 HTML
   console.log("🎨 生成 preview-final.html...");
-  const html = await generatePreviewHTML(dsl);
+  const html = await generatePreviewHTML(dsl, { originalDslData });
   const finalPath = join(outputDir, "preview-final.html");
   writeFileSync(finalPath, html, "utf-8");
   console.log(`✅ 已保存: ${finalPath}`);
@@ -325,7 +349,7 @@ async function rebuildOnly(outputDir: string) {
  * 从 patches/ 目录读取并应用 patch
  * 同时写入 patches.json（兼容旧流程）
  */
-async function applyPatchesFromDir(outputDir: string, machineDSL: any): Promise<any> {
+async function applyPatchesFromDir(outputDir: string, machineDSL: any): Promise<{ dsl: any; hasPatches: boolean }> {
   const patchesDir = join(outputDir, "patches");
   const patchPath = join(outputDir, "patches.json");
 
@@ -406,19 +430,21 @@ async function applyPatchesFromDir(outputDir: string, machineDSL: any): Promise<
       writeFileSync(patchPath, JSON.stringify(patchDoc, null, 2), "utf-8");
       console.log(`   已写入 patches.json`);
 
-      return applyPatches(machineDSL, patchDoc);
+      return { dsl: applyPatches(machineDSL, patchDoc), hasPatches: true };
     }
   }
 
   // 回退：直接从 patches.json 读取
   if (existsSync(patchPath)) {
     const patchDoc: PatchDocument = JSON.parse(readFileSync(patchPath, "utf-8"));
-    console.log(`   从 patches.json 读取 ${patchDoc.patches.length} 个 patch`);
-    return applyPatches(machineDSL, patchDoc);
+    if (patchDoc.patches && patchDoc.patches.length > 0) {
+      console.log(`   从 patches.json 读取 ${patchDoc.patches.length} 个 patch`);
+      return { dsl: applyPatches(machineDSL, patchDoc), hasPatches: true };
+    }
   }
 
   console.log("   未找到 patch 文件");
-  return machineDSL;
+  return { dsl: machineDSL, hasPatches: false };
 }
 
 /**

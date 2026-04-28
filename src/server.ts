@@ -326,6 +326,7 @@ async function rebuildHTML(): Promise<{ success: boolean; error?: string }> {
   try {
     const { generatePreviewHTML } = await import("./generators/html-preview.js");
     const { applyPatches } = await import("./utils/patch.js");
+    const { extractOriginalDslData } = await import("./converters/original-dsl-extractor.js");
 
     const machineDSLPath = join(OUTPUT_DIR, "machine-dsl.json");
     const patchPath = join(OUTPUT_DIR, "patches.json");
@@ -338,14 +339,26 @@ async function rebuildHTML(): Promise<{ success: boolean; error?: string }> {
 
     if (existsSync(patchPath)) {
       const patchDoc = JSON.parse(readFileSync(patchPath, "utf-8"));
-      dsl = applyPatches(dsl, patchDoc);
+      if (patchDoc.patches && patchDoc.patches.length > 0) {
+        dsl = applyPatches(dsl, patchDoc);
+      }
     }
 
     // 保存应用 patch 后的 DSL
     const finalDSLPath = join(OUTPUT_DIR, "final-machine-dsl.json");
     writeFileSync(finalDSLPath, JSON.stringify(dsl, null, 2), "utf-8");
 
-    const html = await generatePreviewHTML(dsl);
+    // 尝试加载原始 DSL 数据
+    let originalDslData = null;
+    const originalDSLPath = join(OUTPUT_DIR, "original-dsl.json");
+    if (existsSync(originalDSLPath)) {
+      try {
+        const originalDSL = JSON.parse(readFileSync(originalDSLPath, "utf-8"));
+        originalDslData = extractOriginalDslData(originalDSL);
+      } catch {}
+    }
+
+    const html = await generatePreviewHTML(dsl, { originalDslData });
     const finalPath = join(OUTPUT_DIR, "preview-final.html");
     writeFileSync(finalPath, html, "utf-8");
 

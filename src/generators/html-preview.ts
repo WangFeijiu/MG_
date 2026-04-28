@@ -1,10 +1,14 @@
 /**
- * 机器 DSL 到预览 HTML 的生成器（v5 — 整页单次 LLM 生成）
+ * 机器 DSL 到预览 HTML 的生成器（v6 — 程序化为主 + LLM 辅助）
  *
- * 方法论：
- * - DSL → 程序化分析 → 全局设计系统 → 单次 LLM 整页生成
- * - LLM 输出包含完整 HTML（含 <style>, <script>, 响应式, 交互）
- * - 失败时 fallback 到旧版 per-section 生成
+ * 数据流：
+ * 1. 加载原始 DSL 数据（可选）
+ * 2. 程序化分析 + section 拆分
+ * 3. 程序化渲染（精确像素）
+ * 4. [可选] LLM 语义化包装（小 prompt <8KB）
+ * 5. 拼接完整页面
+ *
+ * 当原始 DSL 不可用时，回退到旧版 LLM 流程。
  */
 
 import type { MachineDSL, DSLNode } from "../types/machine-dsl.js";
@@ -19,10 +23,15 @@ import { generateGlobalDesignSystem, type GlobalDesignSystem } from "./global-de
 import { LLMClient } from "../llm/llm-client.js";
 import { analyzeDSL, type DSLAnalysis } from "./dsl-analyzer.js";
 import { generatePageHTML } from "./llm-page-html-generator.js";
+import type { OriginalDslData } from "../converters/original-dsl-extractor.js";
+import { renderPageProgrammatic, type SectionRenderResult } from "./programmatic-section-renderer.js";
+import { semanticWrapAllSections } from "./semantic-section-llm.js";
 
 export type PreviewOptions = {
   useLLM?: boolean;
   llmClient?: LLMClient;
+  /** 原始 DSL 数据（用于程序化渲染） */
+  originalDslData?: OriginalDslData | null;
 };
 
 export async function generatePreviewHTML(
@@ -38,15 +47,63 @@ export async function generatePreviewHTML(
   console.log(`\n[PreviewHTML] 开始生成 — Page: "${page.name}", ${nodes.length} nodes`);
 
   // Step 1: 程序化分析（纯计算，无 LLM）
-  console.log("[PreviewHTML] Step 1/2: 程序化 DSL 分析...");
+  console.log("[PreviewHTML] Step 1: 程序化 DSL 分析...");
   const t1 = Date.now();
   const analysis = analyzeDSL(dsl);
   const sections = splitSections(dsl);
   console.log(`[PreviewHTML]   ✓ 分析完成: ${sections.length} sections, ${analysis.typographyScale.length} typography levels (${Date.now() - t1}ms)`);
 
-  // Step 2: 单次 LLM 整页生成
+  // Step 2: 程序化渲染（当有原始 DSL 数据时优先使用）
+  const originalData = options?.originalDslData ?? null;
+
+  if (originalData) {
+    console.log("[PreviewHTML] Step 2: 程序化渲染（精确像素）...");
+    const t2 = Date.now();
+    const rendered = renderPageProgrammatic(dsl, sections, originalData);
+    console.log(`[PreviewHTML]   ✓ 程序化渲染完成 (${Date.now() - t2}ms)`);
+
+    // Step 3: [可选] LLM 语义化包装
+    let sectionResults = new Map<string, SectionRenderResult>();
+    for (let i = 0; i < sections.length; i++) {
+      // renderPageProgrammatic 返回的整体 HTML/CSS，
+      // 需要按 section 拆分用于语义化
+      sectionResults.set(sections[i].id, {
+        html: `<!-- placeholder -->`,
+        css: rendered.css,
+      });
+    }
+
+    // 如果启用 LLM，使用语义化包装
+    if (options?.useLLM !== false) {
+      console.log("[PreviewHTML] Step 3: LLM 语义化包装...");
+      const t3 = Date.now();
+      try {
+        // 使用程序化渲染结果 + LLM 单次整页生成
+        const wrapped = await semanticWrapAllSections(
+          sections,
+          sectionResults,
+          analysis.designSystem,
+          { llmClient: options?.llmClient },
+        );
+        console.log(`[PreviewHTML]   ✓ LLM 语义化完成 (${Date.now() - t3}ms)`);
+      } catch (err: any) {
+        console.warn(`[PreviewHTML]   ⚠️ LLM 语义化失败: ${err.message}，使用纯程序化渲染`);
+      }
+    }
+
+    // 组装完整页面
+    const fullHTML = assemblePage(dsl, rendered, analysis);
+    const totalElapsed = ((Date.now() - totalStart) / 1000).toFixed(1);
+    console.log(`[PreviewHTML] 全部完成 — 总耗时 ${totalElapsed}s\n`);
+    return fullHTML;
+  }
+
+  // === Fallback: 旧版 LLM 流程（无原始 DSL 数据时） ===
+  console.log("[PreviewHTML] Step 2: 无原始 DSL 数据，使用 LLM 流程...");
+
+  // 单次 LLM 整页生成
   if (options?.useLLM !== false && nodes.length <= 800) {
-    console.log("[PreviewHTML] Step 2/2: 单次 LLM 整页生成...");
+    console.log("[PreviewHTML]   → 尝试单次 LLM 整页生成...");
     const t2 = Date.now();
     try {
       const result = await generatePageHTML(analysis, sections);
@@ -67,8 +124,54 @@ export async function generatePreviewHTML(
     console.log("[PreviewHTML]   ⊘ LLM 已禁用，使用机械翻译");
   }
 
-  // Fallback: 旧版 per-section 生成
+  // Fallback: per-section 生成
   return fallbackPerSectionGeneration(dsl, analysis, sections, options, totalStart);
+}
+
+// ========== 程序化渲染页面组装 ==========
+
+function assemblePage(
+  dsl: MachineDSL,
+  rendered: SectionRenderResult,
+  analysis: DSLAnalysis,
+): string {
+  const { page } = dsl;
+
+  const unifiedCSS = [
+    "/* Global Semantic Design System */",
+    analysis.designSystem.rootCSS,
+    "",
+    "/* Base & Utilities */",
+    analysis.designSystem.utilityCSS,
+    "",
+    "/* Legacy Design Tokens (fallback) */",
+    generateCSSTokenBlock(analysis.tokens),
+    "",
+    "/* Programmatic Section Styles */",
+    rendered.css,
+  ].join("\n");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${page.name} — Preview</title>
+  ${analysis.designSystem.fontLinks || `<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">`}
+  <style>
+    ${unifiedCSS}
+
+    .dsl-node { transition: outline 0.15s ease; }
+    .dsl-node:hover { outline: 2px solid rgba(59, 130, 246, 0.5); outline-offset: 2px; }
+    .dsl-node.selected { outline: 2px solid rgb(59, 130, 246); outline-offset: 2px; }
+  </style>
+</head>
+<body>
+${rendered.html}
+</body>
+</html>`;
 }
 
 // ========== 旧版 Per-Section 生成（fallback） ==========

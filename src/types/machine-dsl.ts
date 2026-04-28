@@ -83,6 +83,9 @@ export type DSLNode = {
     transition?: string;
     cursor?: string;
     pointerEvents?: string;
+    letterSpacing?: number;
+    textTransform?: string;
+    strokeAlign?: "inside" | "outside" | "center";
   };
 
   content?: {
@@ -94,5 +97,17 @@ export type DSLNode = {
     sourceNodeId?: string;
     componentHint?: string;
     semanticType?: string;
+    /** SVG path 数据（来自 PATH 节点） */
+    svgPaths?: Array<{ fill: string; data: string }>;
+    /** effect 引用 ID（用于从原始 DSL 查找阴影） */
+    effectRef?: string;
+    /** 文本模式 */
+    textMode?: "single-line" | "auto-height";
+    /** 多色文本范围 */
+    textColorRanges?: Array<{ start: number; end: number; color: string }>;
+    /** 字体引用（用于从原始 DSL 精确查找） */
+    fontRef?: string;
+    /** 语义 paint token 名 */
+    paintTokenName?: string;
   };
 };

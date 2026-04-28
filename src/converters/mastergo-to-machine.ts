@@ -15,7 +15,7 @@ type MasterGoDSL = {
 };
 
 type MasterGoNode = {
-  type: "FRAME" | "GROUP" | "LAYER" | "TEXT";
+  type: "FRAME" | "GROUP" | "LAYER" | "TEXT" | "PATH";
   id: string;
   name: string;
   layoutStyle: {
@@ -47,6 +47,8 @@ type MasterGoNode = {
   strokeType?: string;
   strokeAlign?: string;
   strokeWidth?: string;
+  /** PATH 节点的 path 数据 */
+  path?: Array<{ fill: string; data: string }>;
 };
 
 /**
@@ -83,7 +85,7 @@ export function convertMasterGoToMachine(masterGoDSL: MasterGoDSL): MachineDSL {
 
     const dslNode: DSLNode = {
       id: mgNode.id,
-      type: mgNode.type === "TEXT" ? "text" : "container",
+      type: mgNode.type === "TEXT" ? "text" : mgNode.type === "PATH" ? "icon" : "container",
       name: mgNode.name,
       parentId,
       children: [],
@@ -94,6 +96,27 @@ export function convertMasterGoToMachine(masterGoDSL: MasterGoDSL): MachineDSL {
         semanticType: classifyNodeSemantic(mgNode),
       },
     };
+
+    // === PATH 节点：存储 SVG path 数据 ===
+    if (mgNode.type === "PATH" && mgNode.path && mgNode.path.length > 0) {
+      dslNode.type = "icon";
+      const svgPaths: Array<{ fill: string; data: string }> = [];
+      for (const p of mgNode.path) {
+        const fillValue = resolveStyle(styles, p.fill);
+        svgPaths.push({ fill: fillValue || p.fill, data: p.data });
+      }
+      dslNode.meta!.svgPaths = svgPaths;
+    }
+
+    // === effect 引用 ===
+    if (mgNode.effect) {
+      dslNode.meta!.effectRef = mgNode.effect;
+    }
+
+    // === textMode ===
+    if (mgNode.textMode) {
+      dslNode.meta!.textMode = mgNode.textMode as "single-line" | "auto-height";
+    }
 
     // === 布局处理 ===
 
@@ -159,11 +182,14 @@ export function convertMasterGoToMachine(masterGoDSL: MasterGoDSL): MachineDSL {
       dslNode.style.overflow = "hidden";
     }
 
-    // stroke（边框）
+    // stroke（边框）+ strokeAlign
     if (mgNode.strokeColor && mgNode.strokeWidth) {
       const strokeColor = resolveStyle(styles, mgNode.strokeColor);
       const strokeW = parseFloat(mgNode.strokeWidth) || 1;
       if (strokeColor) {
+        if (mgNode.strokeAlign) {
+          dslNode.style.strokeAlign = mgNode.strokeAlign as "inside" | "outside" | "center";
+        }
         dslNode.style.border = `${strokeW}px solid ${strokeColor}`;
       }
     }
@@ -174,11 +200,19 @@ export function convertMasterGoToMachine(masterGoDSL: MasterGoDSL): MachineDSL {
         text: mgNode.text.map(t => t.text).join(""),
       };
 
-      // 文本颜色
+      // 文本颜色 — 保存完整范围
       if (mgNode.textColor && mgNode.textColor.length > 0) {
         const color = resolveStyle(styles, mgNode.textColor[0].color);
         if (color) {
           dslNode.style.color = color;
+        }
+        // 保存多色文本范围
+        if (mgNode.textColor.length > 1) {
+          dslNode.meta!.textColorRanges = mgNode.textColor.map(range => ({
+            start: range.start,
+            end: range.end,
+            color: resolveStyle(styles, range.color) || range.color,
+          }));
         }
       }
 
@@ -194,11 +228,22 @@ export function convertMasterGoToMachine(masterGoDSL: MasterGoDSL): MachineDSL {
             dslNode.style.lineHeight = parseFloat(lh);
           }
 
+          // letterSpacing
+          if (fontStyle.value.letterSpacing !== undefined) {
+            const ls = parseFloat(fontStyle.value.letterSpacing);
+            if (!isNaN(ls)) {
+              dslNode.style.letterSpacing = ls;
+            }
+          }
+
           // 解析 fontWeight 从 style JSON 字符串
           const styleObj = parseFontStyle(fontStyle.value.style);
           if (styleObj.fontWeight) {
             dslNode.style.fontWeight = styleObj.fontWeight;
           }
+
+          // 保存 font 引用
+          dslNode.meta!.fontRef = mgNode.text[0].font;
         }
       }
 
