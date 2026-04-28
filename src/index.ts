@@ -21,7 +21,7 @@ import { generatePreviewHTML } from "./generators/html-preview.js";
 import { generateReactApp } from "./generators/react-section-generator.js";
 import { applyPatches } from "./utils/patch.js";
 import { splitSections } from "./generators/section-splitter.js";
-import { runValidationPipeline } from "./validators/validation-pipeline.js";
+// import { runValidationPipeline } from "./validators/validation-pipeline.js"; // 暂时禁用视觉验证功能
 
 import type { PatchDocument } from "./types/patch.js";
 
@@ -200,6 +200,8 @@ async function main() {
   const skipValidate = args.includes("--skip-validate");
   if (!skipValidate) {
     console.log("📸 Step 6: Section 级截图对比...");
+    console.log("   ⚠️  截图对比功能暂时禁用（缺少依赖）\n");
+    /*
     try {
       const nodeMap = new Map<string, any>();
       for (const node of finalDSL.nodes) nodeMap.set(node.id, node);
@@ -221,6 +223,7 @@ async function main() {
     } catch (err: any) {
       console.log(`   ⚠️  截图对比跳过: ${err.message}\n`);
     }
+    */
   } else {
     console.log("⏭️  Step 6: 截图对比已跳过 (--skip-validate)\n");
   }

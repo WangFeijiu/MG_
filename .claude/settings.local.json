@@ -33,7 +33,13 @@
       "Bash(npm run *)",
       "Bash(html\" E:/Codes/MG_/output/preview.html | head -10)",
       "Bash(grep -n \"<!-- Section\\\\|```html\" E:/Codes/MG_/output/preview.html | head -10)",
-      "Bash(html /)"
+      "Bash(html /)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(curl:*)",
+      "Bash(netstat:*)",
+      "Bash(tasklist:*)",
+      "Bash(taskkill:*)"
     ]
   }
 }

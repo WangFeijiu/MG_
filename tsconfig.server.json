@@ -17,5 +17,16 @@
     "rootDir": "./"
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "react-app", "output", "patches", "src/**/*.test.ts", "src/**/__tests__"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "react-app",
+    "output",
+    "patches",
+    "src/**/*.test.ts",
+    "src/**/__tests__",
+    "src/validators/**",
+    "src/store/**",
+    "src/llm/**"
+  ]
 }

@@ -13,7 +13,7 @@
 
 import puppeteer, { type Browser } from "puppeteer";
 import pixelmatch from "pixelmatch";
-import { PNG } from "pngjs";
+import { PNG } from "pngjs/browser.js";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import type { MachineDSL, DSLNode } from "../types/machine-dsl.js";
