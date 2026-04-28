@@ -78,6 +78,11 @@ export type DSLNode = {
     objectFit?: ObjectFit;
     boxShadow?: string;
     border?: string;
+    opacity?: number;
+    transform?: string;
+    transition?: string;
+    cursor?: string;
+    pointerEvents?: string;
   };
 
   content?: {
