@@ -25,7 +25,6 @@ import { analyzeDSL, type DSLAnalysis } from "./dsl-analyzer.js";
 import { generatePageHTML } from "./llm-page-html-generator.js";
 import type { OriginalDslData } from "../converters/original-dsl-extractor.js";
 import { renderPageProgrammatic, type SectionRenderResult } from "./programmatic-section-renderer.js";
-import { semanticWrapAllSections } from "./semantic-section-llm.js";
 
 export type PreviewOptions = {
   useLLM?: boolean;
@@ -61,35 +60,6 @@ export async function generatePreviewHTML(
     const t2 = Date.now();
     const rendered = renderPageProgrammatic(dsl, sections, originalData);
     console.log(`[PreviewHTML]   ✓ 程序化渲染完成 (${Date.now() - t2}ms)`);
-
-    // Step 3: [可选] LLM 语义化包装
-    let sectionResults = new Map<string, SectionRenderResult>();
-    for (let i = 0; i < sections.length; i++) {
-      // renderPageProgrammatic 返回的整体 HTML/CSS，
-      // 需要按 section 拆分用于语义化
-      sectionResults.set(sections[i].id, {
-        html: `<!-- placeholder -->`,
-        css: rendered.css,
-      });
-    }
-
-    // 如果启用 LLM，使用语义化包装
-    if (options?.useLLM !== false) {
-      console.log("[PreviewHTML] Step 3: LLM 语义化包装...");
-      const t3 = Date.now();
-      try {
-        // 使用程序化渲染结果 + LLM 单次整页生成
-        const wrapped = await semanticWrapAllSections(
-          sections,
-          sectionResults,
-          analysis.designSystem,
-          { llmClient: options?.llmClient },
-        );
-        console.log(`[PreviewHTML]   ✓ LLM 语义化完成 (${Date.now() - t3}ms)`);
-      } catch (err: any) {
-        console.warn(`[PreviewHTML]   ⚠️ LLM 语义化失败: ${err.message}，使用纯程序化渲染`);
-      }
-    }
 
     // 组装完整页面
     const fullHTML = assemblePage(dsl, rendered, analysis);

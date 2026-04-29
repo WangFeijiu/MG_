@@ -284,7 +284,8 @@ async function rebuildOnly(outputDir: string) {
   let dsl = JSON.parse(readFileSync(machineDSLPath, "utf-8"));
 
   // 应用 patches
-  dsl = await applyPatchesFromDir(outputDir, dsl);
+  const patchResult = await applyPatchesFromDir(outputDir, dsl);
+  dsl = patchResult.dsl;
 
   // 保存应用 patch 后的 DSL
   const finalDSLPath = join(outputDir, "final-machine-dsl.json");
