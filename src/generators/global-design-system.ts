@@ -322,7 +322,7 @@ function buildSemanticFontVars(stats: FontStats): Map<string, string> {
 function buildFontLinks(stats: FontStats): string {
   const family = stats.primaryFont;
   const weights = [...stats.weights.keys()].sort((a, b) => a - b);
-  const weightStr = weights.length > 0 ? weights.join("") : "400;500;600;700";
+  const weightStr = weights.length > 0 ? weights.join(";") : "400;500;600;700";
 
   // 生成 Google Fonts 链接（简化版，常用字体）
   const googleFonts = ["Poppins", "Inter", "Roboto", "Open Sans", "Lato", "Montserrat"];

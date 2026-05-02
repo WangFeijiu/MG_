@@ -39,7 +39,10 @@
       "Bash(curl:*)",
       "Bash(netstat:*)",
       "Bash(tasklist:*)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(python3 *)",
+      "Bash(git stash *)",
+      "Bash(git rebase *)"
     ]
   }
 }

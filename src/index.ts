@@ -18,11 +18,10 @@ config();
 
 import { convertMasterGoToMachine } from "./converters/mastergo-to-machine.js";
 import { generatePreviewHTML } from "./generators/html-preview.js";
-import { generateReactApp } from "./generators/react-section-generator.js";
 import { applyPatches } from "./utils/patch.js";
 import { splitSections } from "./generators/section-splitter.js";
 import { extractOriginalDslData } from "./converters/original-dsl-extractor.js";
-// import { runValidationPipeline } from "./validators/validation-pipeline.js"; // 暂时禁用视觉验证功能
+import { runValidationPipeline } from "./validators/validation-pipeline.js";
 
 import type { PatchDocument } from "./types/patch.js";
 
@@ -184,36 +183,17 @@ async function main() {
   const finalDSL = patchResult.dsl;
   const hasPatches = patchResult.hasPatches;
 
-  // Step 5: 生成 React 代码
-  console.log("⚛️  Step 5: 生成 React 代码...");
-  const reactOutput = await generateReactApp(finalDSL);
-  const reactDir = join(outputDir, "react");
-  const sectionsDir = join(reactDir, "sections");
-  if (!existsSync(reactDir)) mkdirSync(reactDir, { recursive: true });
-  if (!existsSync(sectionsDir)) mkdirSync(sectionsDir, { recursive: true });
-
-  writeFileSync(join(reactDir, "App.tsx"), reactOutput.appTSX, "utf-8");
-  writeFileSync(join(reactDir, "App.css"), reactOutput.appCSS, "utf-8");
-  for (const section of reactOutput.sections) {
-    writeFileSync(join(sectionsDir, section.fileName), section.code, "utf-8");
-  }
-  console.log(`✅ React 代码已保存: ${reactDir}/`);
-  console.log(`   App.tsx + App.css + ${reactOutput.sections.length} sections\n`);
-
-  // Step 6: 截图对比 + 自动修正
+  // Step 5: 截图对比（HTML vs 设计稿）
   const skipValidate = args.includes("--skip-validate");
   if (!skipValidate) {
-    console.log("📸 Step 6: Section 级截图对比...");
-    console.log("   ⚠️  截图对比功能暂时禁用（缺少依赖）\n");
-    /*
+    console.log("📸 Step 5: Section 级截图对比...");
     try {
       const nodeMap = new Map<string, any>();
       for (const node of finalDSL.nodes) nodeMap.set(node.id, node);
       const sections = splitSections(finalDSL);
-      const previewHTML = await generatePreviewHTML(finalDSL);
 
       const validation = await runValidationPipeline(
-        finalDSL, sections, nodeMap, reactOutput, previewHTML,
+        finalDSL, sections, nodeMap, null as any, previewHTML,
         { maxAttempts: 3, enableLLMCorrection: !!process.env.LLM_API_KEY, outputDir },
       );
 
@@ -221,26 +201,25 @@ async function main() {
       console.log(`   对比完成: ${validation.results.length} sections`);
       for (const r of validation.results) {
         const icon = r.converged ? "✅" : "⚠️";
-        console.log(`   ${icon} ${r.sectionName} (${r.kind}) — HTML: ${(r.htmlDiffPercent * 100).toFixed(1)}% | React: ${(r.reactDiffPercent * 100).toFixed(1)}% — ${r.attempts} attempts${r.corrected ? " (LLM corrected)" : ""}`);
+        console.log(`   ${icon} ${r.sectionName} (${r.kind}) — diff: ${(r.htmlDiffPercent * 100).toFixed(1)}% — ${r.attempts} attempts${r.corrected ? " (LLM corrected)" : ""}`);
       }
-      console.log(`   平均差异: HTML ${(validation.totalHTMLDiff * 100).toFixed(1)}% | React ${(validation.totalReactDiff * 100).toFixed(1)}% | ${validation.allConverged ? "全部收敛" : "部分未收敛"}\n`);
+      console.log(`   平均差异: ${(validation.totalHTMLDiff * 100).toFixed(1)}% | ${validation.allConverged ? "全部收敛" : "部分未收敛"}\n`);
     } catch (err: any) {
       console.log(`   ⚠️  截图对比跳过: ${err.message}\n`);
     }
-    */
   } else {
-    console.log("⏭️  Step 6: 截图对比已跳过 (--skip-validate)\n");
+    console.log("⏭️  Step 5: 截图对比已跳过 (--skip-validate)\n");
   }
 
-  // Step 4b: 保存应用 patch 后的 DSL
-  console.log("💾 Step 4b: 保存应用 patch 后的 DSL...");
+  // Step 6: 保存应用 patch 后的 DSL
+  console.log("💾 Step 6: 保存应用 patch 后的 DSL...");
   const finalDSLPath = join(outputDir, "final-machine-dsl.json");
   writeFileSync(finalDSLPath, JSON.stringify(finalDSL, null, 2), "utf-8");
   console.log(`✅ 应用 patch 后的 DSL 已保存: ${finalDSLPath}\n`);
 
-  // Step 5: 仅在有 patch 时重新生成预览 HTML
+  // 仅在有 patch 时重新生成预览 HTML
   if (hasPatches) {
-    console.log("🎨 Step 5: 重新生成包含 patch 的预览 HTML...");
+    console.log("🎨 重新生成包含 patch 的预览 HTML...");
     const finalPreviewHTML = await generatePreviewHTML(finalDSL, { originalDslData });
     const finalPreviewPath = join(outputDir, "preview-final.html");
     writeFileSync(finalPreviewPath, finalPreviewHTML, "utf-8");
@@ -249,10 +228,11 @@ async function main() {
     // 也更新 preview.html
     writeFileSync(join(outputDir, "preview.html"), finalPreviewHTML, "utf-8");
   } else {
-    console.log("⏭️  Step 5: 无 patch，跳过重新生成预览 HTML\n");
+    console.log("⏭️  无 patch，跳过重新生成预览 HTML\n");
   }
 
-  console.log("🎉 完成！所有文件已生成到 output 目录");
+  console.log("🎉 完成！HTML 已生成到 output 目录");
+  console.log("   请在浏览器中校准 HTML，然后运行 npm run generate-react 生成 React 代码\n");
 }
 
 /**
@@ -293,7 +273,7 @@ async function rebuildOnly(outputDir: string) {
   console.log(`✅ 应用 patch 后的 DSL 已保存: ${finalDSLPath}`);
 
   // 生成 HTML
-  console.log("🎨 生成 preview-final.html...");
+  console.log("🎨 生成 preview.html...");
   const html = await generatePreviewHTML(dsl, { originalDslData });
   const finalPath = join(outputDir, "preview-final.html");
   writeFileSync(finalPath, html, "utf-8");
@@ -303,20 +283,6 @@ async function rebuildOnly(outputDir: string) {
   writeFileSync(previewPath, html, "utf-8");
   console.log(`✅ 已保存: ${previewPath}`);
 
-  // 生成 React 代码
-  console.log("⚛️  生成 React 代码...");
-  const reactOutput = await generateReactApp(dsl);
-  const reactDir = join(outputDir, "react");
-  const sectionsDir = join(reactDir, "sections");
-  if (!existsSync(reactDir)) mkdirSync(reactDir, { recursive: true });
-  if (!existsSync(sectionsDir)) mkdirSync(sectionsDir, { recursive: true });
-  writeFileSync(join(reactDir, "App.tsx"), reactOutput.appTSX, "utf-8");
-  writeFileSync(join(reactDir, "App.css"), reactOutput.appCSS, "utf-8");
-  for (const section of reactOutput.sections) {
-    writeFileSync(join(sectionsDir, section.fileName), section.code, "utf-8");
-  }
-  console.log(`✅ React 代码已保存: ${reactDir}/`);
-
   // 截图对比
   const skipValidate = args.includes("--skip-validate");
   if (!skipValidate) {
@@ -325,25 +291,25 @@ async function rebuildOnly(outputDir: string) {
       const nodeMap = new Map<string, any>();
       for (const node of dsl.nodes) nodeMap.set(node.id, node);
       const sections = splitSections(dsl);
-      const previewHTML = await generatePreviewHTML(dsl);
 
       const validation = await runValidationPipeline(
-        dsl, sections, nodeMap, reactOutput, previewHTML,
+        dsl, sections, nodeMap, null as any, html,
         { maxAttempts: 3, enableLLMCorrection: !!process.env.LLM_API_KEY },
       );
 
       console.log(`   对比完成: ${validation.results.length} sections`);
       for (const r of validation.results) {
         const icon = r.converged ? "✅" : "⚠️";
-      console.log(`   ${icon} ${r.sectionName} (${r.kind}) — HTML: ${(r.htmlDiffPercent * 100).toFixed(1)}% | React: ${(r.reactDiffPercent * 100).toFixed(1)}% — ${r.attempts} attempts${r.corrected ? " (LLM corrected)" : ""}`);
+        console.log(`   ${icon} ${r.sectionName} (${r.kind}) — diff: ${(r.htmlDiffPercent * 100).toFixed(1)}% — ${r.attempts} attempts${r.corrected ? " (LLM corrected)" : ""}`);
       }
-      console.log(`   平均差异: HTML ${(validation.totalHTMLDiff * 100).toFixed(1)}% | React ${(validation.totalReactDiff * 100).toFixed(1)}% | ${validation.allConverged ? "全部收敛" : "部分未收敛"}\n`);
+      console.log(`   平均差异: ${(validation.totalHTMLDiff * 100).toFixed(1)}% | ${validation.allConverged ? "全部收敛" : "部分未收敛"}\n`);
     } catch (err: any) {
       console.log(`   ⚠️  截图对比跳过: ${err.message}\n`);
     }
   }
 
   console.log("🎉 重建完成！");
+  console.log("   请在浏览器中校准 HTML，然后运行 npm run generate-react 生成 React 代码\n");
 }
 
 /**

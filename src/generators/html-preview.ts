@@ -1,12 +1,11 @@
 /**
- * 机器 DSL 到预览 HTML 的生成器（v6 — 程序化为主 + LLM 辅助）
+ * 机器 DSL 到预览 HTML 的生成器（v7 — 模板渲染）
  *
  * 数据流：
  * 1. 加载原始 DSL 数据（可选）
  * 2. 程序化分析 + section 拆分
- * 3. 程序化渲染（精确像素）
- * 4. [可选] LLM 语义化包装（小 prompt <8KB）
- * 5. 拼接完整页面
+ * 3. 模板渲染（精确像素）
+ * 4. 拼接完整页面
  *
  * 当原始 DSL 不可用时，回退到旧版 LLM 流程。
  */
@@ -24,7 +23,7 @@ import { LLMClient } from "../llm/llm-client.js";
 import { analyzeDSL, type DSLAnalysis } from "./dsl-analyzer.js";
 import { generatePageHTML } from "./llm-page-html-generator.js";
 import type { OriginalDslData } from "../converters/original-dsl-extractor.js";
-import { renderPageProgrammatic, type SectionRenderResult } from "./programmatic-section-renderer.js";
+import { renderPageProgrammatic, type SectionRenderResult } from "./template-renderer.js";
 
 export type PreviewOptions = {
   useLLM?: boolean;
@@ -58,7 +57,7 @@ export async function generatePreviewHTML(
   if (originalData) {
     console.log("[PreviewHTML] Step 2: 程序化渲染（精确像素）...");
     const t2 = Date.now();
-    const rendered = renderPageProgrammatic(dsl, sections, originalData);
+    const rendered = renderPageProgrammatic(dsl, sections, originalData, analysis);
     console.log(`[PreviewHTML]   ✓ 程序化渲染完成 (${Date.now() - t2}ms)`);
 
     // 组装完整页面
@@ -258,7 +257,8 @@ ${bodyHTML}
 
 // ========== CSS 工具 ==========
 
-function filterCoveredClasses(classMap: CSSClassMap, coveredNodeIds: Set<string>): string {
+/** @internal */
+export function filterCoveredClasses(classMap: CSSClassMap, coveredNodeIds: Set<string>): string {
   const lines: string[] = [];
   for (const [className, body] of classMap.classes) {
     let allCovered = true;
@@ -315,7 +315,8 @@ function renderNode(
   return `<${tag}${attrs}>${content}</${tag}>`;
 }
 
-function getHTMLTag(node: DSLNode): string {
+/** @internal */
+export function getHTMLTag(node: DSLNode): string {
   switch (node.type) {
     case "button": return "button";
     case "text": return "p";
@@ -357,10 +358,12 @@ function generateAttributes(
   return " " + parts.join(" ");
 }
 
-function escapeHTML(text: string): string {
+/** @internal */
+export function escapeHTML(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function escapeAttr(text: string): string {
+/** @internal */
+export function escapeAttr(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

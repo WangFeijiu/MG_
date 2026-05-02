@@ -16,12 +16,8 @@
     "outDir": "./dist",
     "rootDir": "./",
     "baseUrl": ".",
-    "paths": {
-      "@shared/*": ["shared/*"],
-      "@server/*": ["server/*"]
-    },
     "types": ["node", "vitest/globals"]
   },
-  "include": ["server/**/*", "shared/**/*", "*.ts"],
+  "include": ["server/**/*", "*.ts"],
   "exclude": ["node_modules", "dist", "client", "temp", "src"]
 }

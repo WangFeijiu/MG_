@@ -18,7 +18,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import type { MachineDSL, DSLNode } from "../types/machine-dsl.js";
 import type { Section } from "../generators/section-splitter.js";
-import { classifySection, shouldReport, type SectionKind } from "../validators/tolerance.js";
+import { classifySection, shouldReport, getTolerance, type SectionKind } from "../validators/tolerance.js";
 import { CorrectionEngine, type DiffRegion } from "../validators/correction-engine.js";
 import { LLMClient } from "../llm/llm-client.js";
 import type { ReactOutput } from "../generators/react-section-generator.js";
@@ -291,6 +291,35 @@ ${htmlBody}
 </html>`;
 }
 
+function buildReactHTMLFromCode(code: string, css: string): string {
+  const returnMatch = code.match(/return\s*\(\s*\n([\s\S]*?)\n\s*\);/);
+  const jsxBody = returnMatch ? returnMatch[1] : "<div />";
+
+  const htmlBody = jsxBody
+    .replace(/className=/g, "class=")
+    .replace(/style=\{\{(.*?)\}\}/g, (_, styles) => {
+      const cssProps = styles
+        .replace(/(\w+):/g, (_, prop) => prop.replace(/([A-Z])/g, "-$1").toLowerCase() + ":")
+        .replace(/'([^']*)'/g, "$1")
+        .replace(/,\s*/g, "; ");
+      return `style="${cssProps}"`;
+    });
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+${css}
+</style>
+</head>
+<body>
+${htmlBody}
+</body>
+</html>`;
+}
+
 function getSectionYBounds(sections: Section[], nodeMap: Map<string, DSLNode>): Map<string, { y: number; height: number }> {
   const bounds = new Map<string, { y: number; height: number }>();
 
@@ -408,18 +437,31 @@ export async function runValidationPipeline(
       // HTML diff: preview.html vs baseline
       const htmlAnalysis = comparePNGs(previewScreenshots[i], baselinePNG);
 
-      // React diff: React code rendering vs baseline
-      const reactHTML = buildReactHTML(reactOutput, i);
-      const generatedPNG = await screenshotFullPage(browser, reactHTML, pageWidth);
-      const reactAnalysis = comparePNGs(generatedPNG, baselinePNG);
+      // React diff: React code rendering vs baseline (only when reactOutput available)
+      let reactAnalysis: DiffAnalysis = { diffPercent: 0, areas: [], features: [] };
+      const hasReactOutput = reactOutput?.sections?.[i] != null;
+      if (hasReactOutput) {
+        const reactHTML = buildReactHTML(reactOutput, i);
+        const generatedPNG = await screenshotFullPage(browser, reactHTML, pageWidth);
+        reactAnalysis = comparePNGs(generatedPNG, baselinePNG);
+      }
 
-      const needsFix = shouldReport(reactAnalysis.diffPercent, kind);
-      const status = needsFix ? "⚠️ 需修正" : "✓ 通过";
-      console.log(
-        `   [${i + 1}/${sections.length}] ${section.name} — ` +
-        `HTML diff: ${(htmlAnalysis.diffPercent * 100).toFixed(2)}%, ` +
-        `React diff: ${(reactAnalysis.diffPercent * 100).toFixed(2)}% ${status}`,
-      );
+      const primaryDiff = hasReactOutput ? reactAnalysis.diffPercent : htmlAnalysis.diffPercent;
+      const needsFix = shouldReport(primaryDiff, kind);
+      const tolerance = getTolerance(kind);
+      const status = needsFix ? `⚠️ 需修正 (阈值: ${(tolerance.pixelThreshold * 100).toFixed(1)}%)` : "✓ 通过";
+      if (hasReactOutput) {
+        console.log(
+          `   [${i + 1}/${sections.length}] ${section.name} (${kind}) — ` +
+          `HTML diff: ${(htmlAnalysis.diffPercent * 100).toFixed(2)}%, ` +
+          `React diff: ${(reactAnalysis.diffPercent * 100).toFixed(2)}% ${status}`,
+        );
+      } else {
+        console.log(
+          `   [${i + 1}/${sections.length}] ${section.name} (${kind}) — ` +
+          `HTML diff: ${(htmlAnalysis.diffPercent * 100).toFixed(2)}% ${status}`,
+        );
+      }
 
       const result: SectionValidationResult = {
         sectionId: section.id,
@@ -432,29 +474,55 @@ export async function runValidationPipeline(
         corrected: false,
       };
 
-      // LLM correction on React code if diff too high
-      if (needsFix && enableLLM) {
+      // LLM correction when diff exceeds threshold
+      if (needsFix && enableLLM && hasReactOutput) {
         let currentCode = reactOutput.sections[i]?.code || "";
+        let currentDiff = reactAnalysis.diffPercent;
+        let currentAreas = reactAnalysis.areas;
+        let currentFeatures = reactAnalysis.features;
+        const llm = new LLMClient();
+        const engine = new CorrectionEngine(llm, 1);
+
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           result.attempts = attempt;
+          const prevDiff = currentDiff;
           process.stdout.write(`      [Correction] 尝试 ${attempt}/${maxAttempts}...`);
           try {
-            const llm = new LLMClient();
-            const engine = new CorrectionEngine(llm, 1);
             const correction = await engine.correctSection(currentCode, {
               sectionId: section.id,
-              diffPercent: result.reactDiffPercent,
+              diffPercent: currentDiff,
               nodeTypes,
-              diffAreas: reactAnalysis.areas,
-              diffFeatures: reactAnalysis.features,
+              diffAreas: currentAreas,
+              diffFeatures: currentFeatures,
             });
             currentCode = correction.correctedCode;
             result.corrected = true;
-            console.log(` ✓`);
+
+            // Re-render corrected code and re-compare
+            const updatedHTML = buildReactHTMLFromCode(currentCode, reactOutput.appCSS);
+            const updatedPNG = await screenshotFullPage(browser, updatedHTML, pageWidth);
+            const newAnalysis = comparePNGs(updatedPNG, baselinePNG);
+            currentDiff = newAnalysis.diffPercent;
+            currentAreas = newAnalysis.areas;
+            currentFeatures = newAnalysis.features;
+            result.reactDiffPercent = currentDiff;
+
+            console.log(` ✓ diff: ${(prevDiff * 100).toFixed(1)}% → ${(currentDiff * 100).toFixed(1)}%`);
+
+            // Early exit if diff dropped below threshold
+            if (!shouldReport(currentDiff, kind)) {
+              result.converged = true;
+              console.log(`      [Correction] ✓ 已收敛 (${(currentDiff * 100).toFixed(1)}% < 阈值 ${(tolerance.pixelThreshold * 100).toFixed(1)}%)`);
+              break;
+            }
           } catch (err: any) {
             console.log(` ✗ ${err.message}`);
             break;
           }
+        }
+
+        if (!result.converged) {
+          console.log(`      [Correction] ⚠ 未收敛 (最终 diff: ${(currentDiff * 100).toFixed(1)}%, 阈值: ${(tolerance.pixelThreshold * 100).toFixed(1)}%)`);
         }
       }
 
