@@ -11,6 +11,7 @@ import type { OriginalDslData } from "../converters/original-dsl-extractor.js";
 import type { DSLAnalysis } from "./dsl-analyzer.js";
 import { renderSvgIcon } from "./svg-renderer.js";
 import { getLayout, px, fb, padOr, brOr, childAt, directChildren, verticalGap } from "./layout-extractor.js";
+import { classifySectionByStructure, type SectionType } from "./structure-based-classifier.js";
 
 export type SectionRenderResult = { html: string; css: string };
 
@@ -19,11 +20,6 @@ export type SectionRenderResult = { html: string; css: string };
 type TextItem = { text: string; fontSize: number; fontWeight: number; color: string; lineHeight?: number };
 type ImageItem = { src: string; alt: string; width: number; height: number };
 type IconItem = { svgHtml: string; width: number; height: number };
-
-type SectionType =
-  | "navbar" | "hero" | "heroSection" | "features" | "featureRow" | "process"
-  | "gridRow" | "cta" | "showcase" | "testimonials" | "splitCta"
-  | "videos" | "faq" | "contact" | "footer" | "content";
 
 // ========== 主入口 ==========
 
@@ -38,11 +34,12 @@ export function renderPageProgrammatic(
 
   const allHTML: string[] = [];
   const cssSet = new Set<string>();
+  const pageWidth = dsl.page.width || 1440;
 
   for (let i = 0; i < sections.length; i++) {
     const section = sections[i];
-    const sectionAnalysis = analysis.sections[i];
-    const secType = classifySection(i, sections.length, section, sectionAnalysis, nodeMap);
+    // 使用基于结构的分类器
+    const secType = classifySectionByStructure(i, sections.length, section, nodeMap, pageWidth);
     const data = extractSectionData(secType, section, nodeMap);
     const result = renderTemplate(secType, data, i);
 
@@ -51,64 +48,6 @@ export function renderPageProgrammatic(
   }
 
   return { html: allHTML.join("\n\n"), css: [...cssSet].join("\n\n") };
-}
-
-// ========== Section 分类 ==========
-
-function classifySection(
-  index: number,
-  total: number,
-  section: Section,
-  analysis: { semanticGuess: string; nodeCount: number; hasImages: boolean; textSummary: string[]; childDirection: string; height: number; yPosition: number },
-  nodeMap: Map<string, DSLNode>,
-): SectionType {
-  const texts = analysis.textSummary.map(t => t.toLowerCase());
-  const root = nodeMap.get(section.nodeId);
-  const guess = analysis.semanticGuess;
-
-  // Navbar
-  if (guess === "navbar" || (index === 0 && root && Number(root.layout.height ?? 0) < 120)) return "navbar";
-
-  // Footer
-  if (guess === "footer" || index === total - 1) return "footer";
-
-  // CTA (action text, centered, small section)
-  if (texts.some(t => t.includes("start your project") || t.includes("clean beauty"))) return "cta";
-
-  // Showcase (product cards with prices)
-  if (texts.some(t => t.includes("$") || t.includes("¥")) && texts.some(t => t.includes("showcase") || t.includes("product"))) return "showcase";
-
-  // Testimonials (cards with names, dates, many icons for stars)
-  if (texts.some(t => t.includes("customer stories") || t.includes("reviews") || t.includes("testimonials"))) return "testimonials";
-
-  // FAQ
-  if (texts.some(t => t.includes("help center") || t.includes("faq") || t.includes("frequently asked"))) return "faq";
-
-  // Contact (split layout with contact/email text) — check BEFORE process to avoid purple-bg misclassification
-  if (texts.some(t => t.includes("contact") || t.includes("email")) && (texts.some(t => t.includes("question")) || texts.some(t => t.includes("message")))) return "contact";
-
-  // Process (3 steps with icons, purple-ish background)
-  if (root?.style.background?.includes("87, 71, 244") && analysis.nodeCount >= 15 && analysis.nodeCount <= 40) return "process";
-
-  // Videos
-  if (texts.some(t => t.includes("tutorial") || t.includes("watch"))) return "videos";
-
-  // Hero section header (large title + subtitle)
-  if (guess === "hero" || (texts.length >= 1 && !analysis.hasImages && analysis.nodeCount <= 5)) return "heroSection";
-
-  // Features (4 alternating rows)
-  if (guess === "features") return "features";
-
-  // Cards / grid rows (similar repeating blocks)
-  if (guess === "cards") return "gridRow";
-
-  // Split CTA (text + image side by side, moderate size)
-  if (analysis.hasImages && analysis.nodeCount <= 15 && analysis.nodeCount >= 8) return "splitCta";
-
-  // Feature row (image + text pair)
-  if (analysis.hasImages && analysis.nodeCount >= 20) return "featureRow";
-
-  return "content";
 }
 
 // ========== 数据提取 ==========

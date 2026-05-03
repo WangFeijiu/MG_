@@ -27,7 +27,10 @@
     "skeleton": "tsx src/cli/skeleton.ts",
     "clean": "tsx src/cli/clean.ts",
     "generate-react": "tsx src/cli/generate-react.ts",
-    "visualize": "tsx src/visualizer/server.ts"
+    "visualize": "tsx src/visualizer/server.ts",
+    "auto-optimize": "tsx src/cli/auto-optimize.ts",
+    "dev:auto": "tsx src/index-auto.ts",
+    "dev:auto:rebuild": "tsx src/index-auto.ts --rebuild"
   },
   "keywords": [
     "dsl",
