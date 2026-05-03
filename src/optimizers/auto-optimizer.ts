@@ -16,8 +16,9 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import type { MachineDSL, DSLNode } from "../types/machine-dsl.js";
 import type { Section } from "../generators/section-splitter.js";
-import { generatePreviewHTML } from "../generators/html-preview.js";
 import type { OriginalDslData } from "../converters/original-dsl-extractor.js";
+import { analyzeDSL } from "../generators/dsl-analyzer.js";
+import { renderPageProgrammatic as renderPageProgrammaticLegacy } from "../generators/programmatic-section-renderer.legacy.js";
 
 // ========== 类型定义 ==========
 
@@ -209,10 +210,12 @@ export class AutoOptimizer {
       console.log(`  [Iteration ${iteration}/${this.maxIterations}]`);
 
       // 生成当前 HTML
-      const html = await generatePreviewHTML(currentDSL, { originalDslData: originalData });
+      const dslAnalysis = analyzeDSL(currentDSL);
+      const rendered = renderPageProgrammaticLegacy(currentDSL, [section], originalData, dslAnalysis);
+      const fullHTML = this.assembleHTML(currentDSL, rendered.html, rendered.css);
 
       // 截图
-      const screenshot = await this.screenshotSection(html, pageWidth, sectionY, sectionHeight);
+      const screenshot = await this.screenshotSection(fullHTML, pageWidth, sectionY, sectionHeight);
 
       // 对比
       const analysis = this.analyzeDiff(baselineCrop, screenshot, sectionRoot, nodeMap);
@@ -699,6 +702,29 @@ export class AutoOptimizer {
       gap: node.layout.gap || 0,
       proportions: [],
     };
+  }
+
+  /**
+   * 组装完整HTML页面
+   */
+  private assembleHTML(dsl: MachineDSL, bodyHTML: string, css: string): string {
+    const pageWidth = dsl.page.width || 1440;
+    return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${dsl.page.name}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    ${css}
+  </style>
+</head>
+<body style="width: ${pageWidth}px; margin: 0 auto;">
+  ${bodyHTML}
+</body>
+</html>`;
   }
 
   // ========== 工具方法 ==========
