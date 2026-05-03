@@ -212,7 +212,7 @@ export class AutoOptimizer {
       // 生成当前 HTML
       const dslAnalysis = analyzeDSL(currentDSL);
       const rendered = renderPageProgrammaticLegacy(currentDSL, [section], originalData, dslAnalysis);
-      const fullHTML = this.assembleHTML(currentDSL, rendered.html, rendered.css);
+      const fullHTML = this.assembleHTML(currentDSL, rendered.html, rendered.css, dslAnalysis);
 
       // 截图
       const screenshot = await this.screenshotSection(fullHTML, pageWidth, sectionY, sectionHeight);
@@ -659,8 +659,10 @@ export class AutoOptimizer {
   /**
    * 组装完整HTML页面
    */
-  private assembleHTML(dsl: MachineDSL, bodyHTML: string, css: string): string {
+  private assembleHTML(dsl: MachineDSL, bodyHTML: string, css: string, analysis: any): string {
     const pageWidth = dsl.page.width || 1440;
+    const rootCSS = analysis.designSystem?.rootCSS || '';
+
     return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -670,6 +672,7 @@ export class AutoOptimizer {
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    ${rootCSS}
     ${css}
   </style>
 </head>

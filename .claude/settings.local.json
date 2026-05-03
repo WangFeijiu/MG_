@@ -46,7 +46,9 @@
       "Bash(git pull *)",
       "Bash(git checkout *)",
       "Bash(git reset *)",
-      "Bash(npm list *)"
+      "Bash(npm list *)",
+      "Bash(cd E:\\\\\\\\Codes\\\\\\\\MG_)",
+      "Bash(tsx src/test-dsl-modification.ts)"
     ]
   }
 }
