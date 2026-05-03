@@ -384,18 +384,6 @@ export class AutoOptimizer {
           suggestedFix: "设置 flex-direction: column",
         });
       }
-
-      // 分析子元素占比
-      const proportions = this.calculateProportions(children, isHorizontal);
-      if (proportions.length > 0) {
-        const proportionStr = proportions.map(p => `${(p * 100).toFixed(0)}%`).join(", ");
-        issues.push({
-          type: "alignment",
-          severity: "minor",
-          description: `子元素占比: ${proportionStr}`,
-          suggestedFix: `应用 flex 占比: ${proportions.map(p => p.toFixed(2)).join(", ")}`,
-        });
-      }
     }
 
     return issues;
@@ -585,19 +573,6 @@ export class AutoOptimizer {
           });
         }
       }
-
-      // 应用子元素占比
-      if (issue.type === "alignment" && issue.suggestedFix.includes("flex 占比")) {
-        const proportionMatch = issue.suggestedFix.match(/应用 flex 占比: ([\d., ]+)/);
-        if (proportionMatch) {
-          const proportions = proportionMatch[1].split(", ").map(p => parseFloat(p));
-          fixes.push({
-            type: "apply-proportions",
-            description: `应用子元素 flex 占比: ${proportions.map(p => p.toFixed(2)).join(", ")}`,
-            payload: { proportions },
-          });
-        }
-      }
     }
 
     // 间距修复
@@ -617,7 +592,7 @@ export class AutoOptimizer {
         fixes.push({
           type: "update-style",
           description: `调整背景颜色为 ${issue.expected}`,
-          payload: { backgroundColor: issue.expected },
+          payload: { background: issue.expected },
         });
       }
     }
@@ -662,29 +637,6 @@ export class AutoOptimizer {
       node.style = { ...node.style, ...fix.payload };
     } else if (fix.type === "update-layout") {
       node.layout = { ...node.layout, ...fix.payload };
-    } else if (fix.type === "apply-proportions") {
-      // 应用占比到子元素
-      const proportions = fix.payload.proportions as number[];
-      const children = node.children;
-      const isHorizontal = node.layout.direction === "row";
-
-      for (let i = 0; i < Math.min(children.length, proportions.length); i++) {
-        const childNode = newDSL.nodes.find((n: DSLNode) => n.id === children[i]);
-        if (childNode && proportions[i] > 0) {
-          // 使用百分比宽度/高度而不是flex
-          if (isHorizontal) {
-            childNode.layout = {
-              ...childNode.layout,
-              width: `${(proportions[i] * 100).toFixed(1)}%`,
-            };
-          } else {
-            childNode.layout = {
-              ...childNode.layout,
-              height: `${(proportions[i] * 100).toFixed(1)}%`,
-            };
-          }
-        }
-      }
     }
 
     return newDSL;
