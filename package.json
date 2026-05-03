@@ -26,7 +26,8 @@
     "pipeline:rebuild": "tsx src/index.ts --rebuild",
     "skeleton": "tsx src/cli/skeleton.ts",
     "clean": "tsx src/cli/clean.ts",
-    "generate-react": "tsx src/cli/generate-react.ts"
+    "generate-react": "tsx src/cli/generate-react.ts",
+    "visualize": "tsx src/visualizer/server.ts"
   },
   "keywords": [
     "dsl",

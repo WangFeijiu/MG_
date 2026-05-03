@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DSL-to-HTML Visualizer</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface2: #232633;
+  --border: #2e3244;
+  --text: #e2e4ed;
+  --text2: #8b8fa3;
+  --accent: #6c8cff;
+  --green: #4ade80;
+  --yellow: #fbbf24;
+  --red: #f87171;
+  --orange: #fb923c;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header */
+.header {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface);
+}
+.header h1 { font-size: 16px; font-weight: 600; }
+.header .meta { font-size: 13px; color: var(--text2); }
+
+/* Summary bar */
+.summary {
+  display: flex;
+  gap: 24px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 13px;
+}
+.summary .stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.summary .label { color: var(--text2); }
+.summary .value { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Main layout */
+.main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Section list (left sidebar) */
+.sidebar {
+  width: 320px;
+  min-width: 320px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.section-list {
+  flex: 1;
+  overflow-y: auto;
+}
+.section-card {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  transition: background 0.15s;
+}
+.section-card:hover { background: var(--surface2); }
+.section-card.selected { background: var(--surface2); border-left: 3px solid var(--accent); }
+.section-card .idx {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.section-card .info { flex: 1; min-width: 0; }
+.section-card .name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.section-card .kind { font-size: 11px; color: var(--text2); }
+.section-card .diff {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.section-card .status-icon { flex-shrink: 0; font-size: 14px; }
+
+.pending .idx { background: var(--surface); color: var(--text2); }
+.running .idx { background: var(--accent); color: #fff; animation: pulse 1.2s infinite; }
+.done.converged .idx { background: var(--green); color: #fff; }
+.done:not(.converged) .idx { background: var(--orange); color: #fff; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Detail panel */
+.detail {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.detail-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text2);
+  font-size: 14px;
+}
+
+/* Comparison images */
+.comparison {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+}
+.comparison .col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.comparison .col-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.comparison .img-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.comparison .img-wrap img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Diff stats */
+.diff-stats {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+.diff-stats h3 {
+  font-size: 13px;
+  color: var(--text2);
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+.diff-stats .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+.diff-stats .metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.diff-stats .metric .label { font-size: 11px; color: var(--text2); }
+.diff-stats .metric .val { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.diff-stats .features { margin-top: 12px; }
+.diff-stats .features li { font-size: 12px; color: var(--text2); margin-top: 4px; }
+
+/* Status bar */
+.statusbar {
+  padding: 8px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--text2);
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.statusbar .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.statusbar .dot.ok { background: var(--green); }
+.statusbar .dot.err { background: var(--red); }
+.statusbar .dot.running { background: var(--accent); animation: pulse 1.2s infinite; }
+
+.btn-reset {
+  padding: 6px 16px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text2);
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+.btn-reset:hover { border-color: var(--red); color: var(--red); }
+
+/* Start button */
+.btn-start {
+  padding: 6px 16px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+.btn-start:hover { background: var(--accent); color: #fff; }
+.btn-start:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Progress bar */
+.progress-bar {
+  height: 3px;
+  background: var(--border);
+  position: relative;
+}
+.progress-bar .fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+  width: 0%;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .comparison { grid-template-columns: 1fr; }
+  .sidebar { width: 240px; min-width: 240px; }
+}
+
+/* Lightbox */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0,0,0,0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-out;
+  animation: fadeIn 0.15s;
+}
+.lightbox img {
+  max-width: 95vw;
+  max-height: 95vh;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.img-wrap { cursor: zoom-in; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>DSL-to-HTML Visualizer</h1>
+    <div class="meta" id="pageMeta">--</div>
+  </div>
+  <button class="btn-start" id="btnStart" onclick="startPipeline()">Start Pipeline</button>
+  <button class="btn-reset" id="btnReset" onclick="resetPipeline()">Reset</button>
+</div>
+
+<div class="progress-bar"><div class="fill" id="progressFill"></div></div>
+
+<div class="summary" id="summaryBar">
+  <div class="stat"><span class="label">Total Diff:</span><span class="value" id="totalDiff">--</span></div>
+  <div class="stat"><span class="label">Converged:</span><span class="value" id="convergedCount">--</span></div>
+  <div class="stat"><span class="label">Duration:</span><span class="value" id="totalDuration">--</span></div>
+</div>
+
+<div class="main">
+  <div class="sidebar">
+    <div class="section-list" id="sectionList"></div>
+  </div>
+  <div class="detail" id="detailPanel">
+    <div class="detail-empty" id="detailEmpty">Click a section to view comparison</div>
+  </div>
+</div>
+
+<div class="statusbar">
+  <span><span class="dot" id="wsDot"></span> <span id="wsStatus">Connecting...</span></span>
+  <span id="pipelineStatus">Idle</span>
+</div>
+
+<script>
+const sectionData = [];
+let selectedIndex = -1;
+let ws;
+
+// ========== WebSocket ==========
+function connectWS() {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  ws = new WebSocket(`${proto}//${location.host}`);
+
+  ws.onopen = () => {
+    document.getElementById("wsDot").className = "dot ok";
+    document.getElementById("wsStatus").textContent = "Connected";
+  };
+
+  ws.onclose = () => {
+    document.getElementById("wsDot").className = "dot err";
+    document.getElementById("wsStatus").textContent = "Disconnected";
+    setTimeout(connectWS, 3000);
+  };
+
+  ws.onmessage = (e) => {
+    const event = JSON.parse(e.data);
+    handleEvent(event);
+  };
+}
+
+// ========== Event handling ==========
+function handleEvent(event) {
+  switch (event.type) {
+    case "pipeline:start":
+      onPipelineStart(event.data);
+      break;
+    case "section:start":
+      onSectionStart(event.data);
+      break;
+    case "section:complete":
+      onSectionComplete(event.data);
+      break;
+    case "pipeline:complete":
+      onPipelineComplete(event.data);
+      break;
+    case "pipeline:error":
+      alert("Error: " + event.data.message);
+      document.getElementById("pipelineStatus").textContent = "Error";
+      document.getElementById("btnStart").disabled = false;
+      break;
+  }
+}
+
+function onPipelineStart(data) {
+  document.getElementById("pageMeta").textContent = `${data.pageName} | ${data.pageWidth}px`;
+  document.getElementById("pipelineStatus").textContent = "Running...";
+  document.getElementById("wsDot").className = "dot running";
+  document.getElementById("btnStart").disabled = true;
+
+  sectionData.length = 0;
+  for (let i = 0; i < data.sectionCount; i++) {
+    sectionData.push({ state: "pending", payload: null });
+  }
+  renderSectionList();
+  document.getElementById("detailPanel").innerHTML = '<div class="detail-empty">Processing sections...</div>';
+}
+
+function onSectionStart(data) {
+  sectionData[data.index] = { state: "running", payload: null, meta: data };
+  renderSectionList();
+  document.getElementById("progressFill").style.width = `${((data.index) / data.total) * 100}%`;
+}
+
+function onSectionComplete(data) {
+  sectionData[data.index] = { state: "done", payload: data };
+  renderSectionList();
+  document.getElementById("progressFill").style.width = `${((data.index + 1) / sectionData.length) * 100}%`;
+
+  if (selectedIndex === data.index) {
+    renderDetail(data.index);
+  }
+}
+
+function onPipelineComplete(data) {
+  document.getElementById("totalDiff").textContent = (data.totalHTMLDiff * 100).toFixed(2) + "%";
+  document.getElementById("convergedCount").textContent = `${data.convergedCount}/${data.sectionCount}`;
+  document.getElementById("totalDuration").textContent = (data.totalDuration / 1000).toFixed(1) + "s";
+  document.getElementById("pipelineStatus").textContent = data.allConverged ? "All converged" : "Partial convergence";
+  document.getElementById("wsDot").className = "dot ok";
+  document.getElementById("btnStart").disabled = false;
+  document.getElementById("progressFill").style.width = "100%";
+}
+
+// ========== Section list ==========
+function renderSectionList() {
+  const list = document.getElementById("sectionList");
+  list.innerHTML = "";
+
+  for (let i = 0; i < sectionData.length; i++) {
+    const s = sectionData[i];
+    const card = document.createElement("div");
+    card.className = `section-card ${s.state} ${s.payload?.converged ? "converged" : ""}${i === selectedIndex ? " selected" : ""}`;
+
+    let statusIcon = "";
+    let diffText = "";
+    if (s.state === "pending") statusIcon = "○";
+    else if (s.state === "running") statusIcon = "●";
+    else if (s.state === "done") statusIcon = s.payload.converged ? "✓" : "⚠";
+
+    if (s.state === "done" && s.payload) {
+      diffText = (s.payload.diffPercent * 100).toFixed(1) + "%";
+    }
+
+    const name = s.payload?.name || s.meta?.name || `Section ${i}`;
+    const kind = s.payload?.kind || s.meta?.semanticGuess || "--";
+
+    card.innerHTML = `
+      <div class="idx">${i}</div>
+      <div class="info">
+        <div class="name" title="${name}">${name}</div>
+        <div class="kind">${kind}</div>
+      </div>
+      <div class="diff">${diffText}</div>
+      <div class="status-icon">${statusIcon}</div>
+    `;
+    card.onclick = () => selectSection(i);
+    list.appendChild(card);
+  }
+}
+
+function selectSection(index) {
+  selectedIndex = index;
+  renderSectionList();
+  renderDetail(index);
+}
+
+// ========== Detail panel ==========
+function renderDetail(index) {
+  const s = sectionData[index];
+  const panel = document.getElementById("detailPanel");
+
+  if (!s || !s.payload) {
+    panel.innerHTML = '<div class="detail-empty">Processing...</div>';
+    return;
+  }
+
+  const d = s.payload;
+  const hasBaseline = !!d.baselineScreenshot;
+  const diffColor = d.converged ? "var(--green)" : "var(--orange)";
+
+  let html = `<div class="comparison">`;
+
+  html += `<div class="col">
+    <div class="col-label">Generated HTML</div>
+    <div class="img-wrap"><img src="${d.generatedScreenshot}" alt="Generated" loading="lazy"></div>
+  </div>`;
+
+  if (hasBaseline) {
+    html += `<div class="col">
+      <div class="col-label">Design Baseline</div>
+      <div class="img-wrap"><img src="${d.baselineScreenshot}" alt="Baseline" loading="lazy"></div>
+    </div>`;
+    html += `<div class="col">
+      <div class="col-label">Diff Overlay</div>
+      <div class="img-wrap"><img src="${d.diffOverlay}" alt="Diff" loading="lazy"></div>
+    </div>`;
+  } else {
+    html += `<div class="col">
+      <div class="col-label">Design Baseline</div>
+      <div class="img-wrap" style="display:flex;align-items:center;justify-content:center;min-height:120px;color:var(--text2);font-size:13px">No baseline available</div>
+    </div>`;
+    html += `<div class="col">
+      <div class="col-label">Diff Overlay</div>
+      <div class="img-wrap" style="display:flex;align-items:center;justify-content:center;min-height:120px;color:var(--text2);font-size:13px">No baseline available</div>
+    </div>`;
+  }
+
+  html += `</div>`;
+
+  html += `<div class="diff-stats">
+    <h3>Section #${d.index} — ${d.name} (${d.kind})</h3>
+    <div class="grid">
+      <div class="metric">
+        <div class="label">Pixel Diff</div>
+        <div class="val" style="color:${diffColor}">${(d.diffPercent * 100).toFixed(2)}%</div>
+      </div>
+      <div class="metric">
+        <div class="label">Diff Areas</div>
+        <div class="val">${d.areas.length}</div>
+      </div>
+      <div class="metric">
+        <div class="label">Status</div>
+        <div class="val" style="color:${diffColor}">${d.converged ? "Converged" : "Needs fix"}</div>
+      </div>
+      <div class="metric">
+        <div class="label">Duration</div>
+        <div class="val">${d.duration}ms</div>
+      </div>
+    </div>`;
+
+  if (d.features.length > 0) {
+    html += `<div class="features"><ul>`;
+    for (const f of d.features) {
+      html += `<li>${f}</li>`;
+    }
+    html += `</ul></div>`;
+  }
+
+  if (d.areas.length > 0) {
+    html += `<div class="features"><strong style="font-size:12px;color:var(--text2)">Diff regions:</strong><ul>`;
+    for (const a of d.areas) {
+      html += `<li>(${a.x}, ${a.y}) ${a.width}x${a.height}px</li>`;
+    }
+    html += `</ul></div>`;
+  }
+
+  html += `</div>`;
+
+  panel.innerHTML = html;
+}
+
+// ========== Actions ==========
+async function startPipeline() {
+  document.getElementById("btnStart").disabled = true;
+  try {
+    const resp = await fetch("/api/start", { method: "POST" });
+    const data = await resp.json();
+    if (!data.started) {
+      alert(data.error || "Failed to start");
+      document.getElementById("btnStart").disabled = false;
+    }
+  } catch (err) {
+    alert("Request failed: " + err.message);
+    document.getElementById("btnStart").disabled = false;
+  }
+}
+
+async function resetPipeline() {
+  if (!confirm("Clear all visualizer data?")) return;
+  await fetch("/api/reset", { method: "POST" });
+  sectionData.length = 0;
+  selectedIndex = -1;
+  renderSectionList();
+  document.getElementById("detailPanel").innerHTML = '<div class="detail-empty">Click a section to view comparison</div>';
+  document.getElementById("totalDiff").textContent = "--";
+  document.getElementById("convergedCount").textContent = "--";
+  document.getElementById("totalDuration").textContent = "--";
+  document.getElementById("progressFill").style.width = "0%";
+  document.getElementById("pageMeta").textContent = "--";
+}
+
+// ========== Lightbox ==========
+function openLightbox(src) {
+  const lb = document.createElement("div");
+  lb.className = "lightbox";
+  lb.onclick = () => lb.remove();
+  const img = document.createElement("img");
+  img.src = src;
+  lb.appendChild(img);
+  document.body.appendChild(lb);
+}
+
+document.addEventListener("click", (e) => {
+  const wrap = e.target.closest(".img-wrap");
+  if (!wrap) return;
+  const img = wrap.querySelector("img");
+  if (!img) return;
+  openLightbox(img.src);
+});
+
+// ========== Init ==========
+async function init() {
+  connectWS();
+
+  // Check for existing report
+  try {
+    const resp = await fetch("/api/report");
+    const report = await resp.json();
+    if (report.sections && report.sections.length > 0) {
+      document.getElementById("pageMeta").textContent = `${report.pageName || "Unknown"} | ${report.pageWidth || "--"}px`;
+      sectionData.length = 0;
+      for (const sec of report.sections) {
+        sectionData.push({ state: "done", payload: sec });
+      }
+      renderSectionList();
+
+      if (report.summary) {
+        document.getElementById("totalDiff").textContent = (report.summary.totalHTMLDiff * 100).toFixed(2) + "%";
+        document.getElementById("convergedCount").textContent = `${report.summary.convergedCount}/${report.summary.sectionCount}`;
+        document.getElementById("totalDuration").textContent = (report.summary.totalDuration / 1000).toFixed(1) + "s";
+        document.getElementById("progressFill").style.width = "100%";
+      }
+    }
+  } catch {}
+}
+
+init();
+</script>
+</body>
+</html>
