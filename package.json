@@ -30,7 +30,8 @@
     "visualize": "tsx src/visualizer/server.ts",
     "auto-optimize": "tsx src/cli/auto-optimize.ts",
     "dev:auto": "tsx src/index-auto.ts",
-    "dev:auto:rebuild": "tsx src/index-auto.ts --rebuild"
+    "dev:auto:rebuild": "tsx src/index-auto.ts --rebuild",
+    "test:automated": "tsx src/cli/automated-test.ts"
   },
   "keywords": [
     "dsl",

@@ -9,16 +9,15 @@
  * 5. 通用化设计，支持任意DSL
  */
 
-import puppeteer, { type Browser } from "puppeteer";
+import puppeteer, { type Browser, type Page } from "puppeteer";
 import { PNG } from "pngjs";
-import pixelmatch from "pixelmatch";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { MachineDSL, DSLNode } from "../types/machine-dsl.js";
 import type { Section } from "../generators/section-splitter.js";
 import type { OriginalDslData } from "../converters/original-dsl-extractor.js";
-import { analyzeDSL } from "../generators/dsl-analyzer.js";
-import { renderPageProgrammatic as renderPageProgrammaticLegacy } from "../generators/programmatic-section-renderer.legacy.js";
+import { generatePreviewHTML } from "../generators/html-preview.js";
+import { blockColorCompare, cropPNG, type CompareResult } from "./perceptual-comparator.js";
 
 // ========== 类型定义 ==========
 
@@ -179,14 +178,14 @@ export class AutoOptimizer {
       throw new Error(`Section root node not found: ${section.nodeId}`);
     }
 
-    // 获取 Section 在页面中的位置
+    // 设计稿中 Section 的位置（baseline 仍按 DSL 坐标裁剪）
     const sectionY = sectionRoot.layout.y ?? 0;
     const sectionHeight = typeof sectionRoot.layout.height === "number"
       ? sectionRoot.layout.height
       : 400;
 
     // 裁剪 baseline
-    const baselineCrop = this.cropPNG(baselineFull, 0, sectionY, pageWidth, sectionHeight);
+    const baselineCrop = cropPNG(baselineFull, 0, sectionY, pageWidth, sectionHeight);
 
     let currentDSL = dsl;
     let currentDiff = 1.0;
@@ -210,17 +209,15 @@ export class AutoOptimizer {
       console.log(`  [Iteration ${iteration}/${this.maxIterations}]`);
 
       // 生成当前 HTML
-      const dslAnalysis = analyzeDSL(currentDSL);
-      const rendered = renderPageProgrammaticLegacy(currentDSL, [section], originalData, dslAnalysis);
-      const fullHTML = this.assembleHTML(currentDSL, rendered.html, rendered.css, dslAnalysis);
+      const html = await generatePreviewHTML(currentDSL, { originalDslData: originalData });
 
-      // 截图
-      const screenshot = await this.screenshotSection(fullHTML, pageWidth, sectionY, sectionHeight);
+      // 截图（整页，然后用 DOM rect 裁剪）
+      const screenshot = await this.screenshotSection(html, pageWidth, section.nodeId);
 
-      // 对比
-      const analysis = this.analyzeDiff(baselineCrop, screenshot, sectionRoot, nodeMap);
+      // 对比（分块色域对比，容忍渲染差异）
+      const compareResult = this.compareSection(baselineCrop, screenshot);
       previousDiff = currentDiff;
-      currentDiff = analysis.diffPercent;
+      currentDiff = 1 - compareResult.matchRate;
       diffHistory.push(currentDiff);
 
       console.log(`    Diff: ${(currentDiff * 100).toFixed(2)}%`);
@@ -259,25 +256,10 @@ export class AutoOptimizer {
         }
       }
 
-      // 生成修复策略
-      const fixes = this.generateFixes(analysis, sectionRoot, nodeMap);
-      if (fixes.length === 0) {
-        console.log(`    无可用修复策略，停止迭代`);
-        break;
-      }
-
-      // 应用修复
-      for (const fix of fixes) {
-        currentDSL = this.applyFix(currentDSL, section.nodeId, fix);
-        appliedFixes.push(fix.description);
-        console.log(`    应用修复: ${fix.description}`);
-      }
-
-      // 更新策略
-      const updatedRoot = currentDSL.nodes.find((n: DSLNode) => n.id === section.nodeId);
-      if (updatedRoot) {
-        currentStrategy = this.extractStrategy(updatedRoot);
-      }
+      // 生成修复策略（在分块色域对比模式下，不做逐像素修复）
+      // TODO: 后续可基于分块不匹配区域做定向修复
+      console.log(`    分块色域对比，无需逐像素修复`);
+      break;
     }
 
     return {
@@ -643,61 +625,35 @@ export class AutoOptimizer {
   }
 
   /**
-   * 提取当前策略
+   * 分块色域对比（替代逐像素 pixelmatch）
    */
-  private extractStrategy(node: DSLNode): OptimizationStrategy {
-    return {
-      useFlexbox: node.layout.mode === "flex",
-      flexDirection: (node.layout.direction as "row" | "column") || "column",
-      justifyContent: node.layout.justify || "flex-start",
-      alignItems: node.layout.align || "stretch",
-      gap: node.layout.gap || 0,
-      proportions: [],
-    };
+  private compareSection(baseline: PNG, screenshot: PNG): CompareResult {
+    return blockColorCompare(baseline, screenshot, {
+      blockSize: 32,
+      deltaEThreshold: 5,
+      pixelPassRatio: 0.85,
+      avgDeltaECap: 5,
+      edgeTrim: 4,
+    });
   }
 
   /**
-   * 组装完整HTML页面
-   */
-  private assembleHTML(dsl: MachineDSL, bodyHTML: string, css: string, analysis: any): string {
-    const pageWidth = dsl.page.width || 1440;
-    const rootCSS = analysis.designSystem?.rootCSS || '';
-
-    return `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${dsl.page.name}</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    ${rootCSS}
-    ${css}
-  </style>
-</head>
-<body style="width: ${pageWidth}px; margin: 0 auto;">
-  ${bodyHTML}
-</body>
-</html>`;
-  }
-
-  // ========== 工具方法 ==========
-
-  /**
-   * 截图指定 Section
+   * 截图指定 Section（整页截图 + DOM bounding rect 裁剪）
    */
   private async screenshotSection(
     html: string,
     pageWidth: number,
-    sectionY: number,
-    sectionHeight: number,
+    sectionNodeId: string,
   ): Promise<PNG> {
     if (!this.browser) throw new Error("Browser not initialized");
 
     const page = await this.browser.newPage();
     await page.setViewport({ width: pageWidth, height: 800 });
-    await page.setContent(html, { waitUntil: "networkidle0" });
+    await page.setContent(html, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await new Promise(r => setTimeout(r, 3000));
+
+    // 获取 section DOM 元素的实际渲染位置
+    const rect = await this.getSectionRect(page, sectionNodeId);
 
     // 截取整页
     const screenshot = await page.screenshot({ type: "png", fullPage: true }) as Buffer;
@@ -705,8 +661,34 @@ export class AutoOptimizer {
 
     const fullPNG = PNG.sync.read(screenshot);
 
-    // 裁剪 Section 区域
-    return this.cropPNG(fullPNG, 0, sectionY, pageWidth, sectionHeight);
+    // 用 DOM rect 裁剪（而非 DSL 坐标）
+    if (rect) {
+      return cropPNG(fullPNG, 0, rect.y, pageWidth, rect.height);
+    }
+
+    // fallback: 如果找不到 DOM 元素，返回整页
+    return fullPNG;
+  }
+
+  /**
+   * 获取 Section DOM 元素的 bounding rect
+   */
+  private async getSectionRect(
+    page: Page,
+    sectionNodeId: string,
+  ): Promise<{ y: number; height: number } | null> {
+    try {
+      return await page.evaluate((nodeId) => {
+        // 尝试通过 data-dsl-id 找到元素
+        const el = document.querySelector(`[data-dsl-id="${nodeId}"]`) as HTMLElement
+          ?? document.querySelector(`[data-section-name]`) as HTMLElement;
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { y: Math.round(r.top + window.scrollY), height: Math.round(r.height) };
+      }, sectionNodeId);
+    } catch {
+      return null;
+    }
   }
 
   /**

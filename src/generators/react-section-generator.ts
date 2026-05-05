@@ -18,6 +18,7 @@ import {
   type SectionHTMLResult,
 } from "./llm-section-html-generator.js";
 import { generateGlobalDesignSystem } from "./global-design-system.js";
+import { buildSectionManifest, type SectionManifest } from "./section-manifest.js";
 import { LLMClient } from "../llm/llm-client.js";
 
 export type ReactOutput = {
@@ -59,13 +60,21 @@ export async function generateReactApp(
   // Step 4: 生成全局设计系统
   const globalSystem = generateGlobalDesignSystem(dsl);
 
+  // Step 4.5: 构建 Section Manifests
+  const manifests: SectionManifest[] = sections.map(s => {
+    const root = nodeMap.get(s.nodeId);
+    return root
+      ? buildSectionManifest(root, nodeMap, s.name, dsl.page.width)
+      : { sectionId: s.nodeId, sectionName: s.name, bounds: { x: 0, y: 0, width: dsl.page.width, height: 0 }, rootTag: "div", rootClassName: "", children: [] };
+  });
+
   // Step 5: 尝试 LLM 语义化生成
   let semanticSections: Map<string, SectionHTMLResult> | null = null;
 
   if (options?.useLLM !== false) {
     try {
       semanticSections = await generateAllSemanticSections(
-        dsl, sections, nodeMap, tokens, globalSystem,
+        dsl, sections, manifests, new Map(), nodeMap, tokens, globalSystem,
         { llmClient: options?.llmClient },
       );
     } catch (err: any) {

@@ -29,7 +29,7 @@ export function loadLLMConfig(): LLMConfig {
   const apiKey = process.env.LLM_API_KEY || "";
   const baseUrl = process.env.LLM_BASE_URL || "https://api.anthropic.com";
   const model = process.env.LLM_MODEL || "claude-sonnet-4-6";
-  const maxTokens = parseInt(process.env.LLM_MAX_TOKENS || "4096", 10);
+  const maxTokens = parseInt(process.env.LLM_MAX_TOKENS || "32768", 10);
   const temperature = parseFloat(process.env.LLM_TEMPERATURE || "0.7");
 
   const timeout = parseInt(process.env.LLM_TIMEOUT || "600000", 10); // 10min default

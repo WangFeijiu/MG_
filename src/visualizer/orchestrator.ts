@@ -104,7 +104,7 @@ export async function runVisualizerPipeline(
 
   try {
     // 全页面截图（只截一次，优化性能）
-    const fullScreenshot = await screenshotFullPage(browser, previewHTML, pageWidth);
+    const fullScreenshot = await screenshotFullPage(browser, previewHTML, pageWidth, pageHeight || undefined);
 
     for (let i = 0; i < sections.length; i++) {
       const section = sections[i];

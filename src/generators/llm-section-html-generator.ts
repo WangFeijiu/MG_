@@ -1,8 +1,10 @@
 /**
  * LLM 语义化 Section HTML 生成器
  *
- * 方法论：先分块 → 局部语义重建 → 全局拼接
- * 每个 Section 独立调用 LLM，生成语义化 HTML（有意义的 class 名、语义标签）
+ * 输入: SectionManifest (精确像素) + SectionSemantics (语义角色)
+ * 输出: 语义化 HTML
+ *
+ * LLM 负责"把 Manifest 翻译成 HTML"，不负责"看图猜布局"
  */
 
 import type { MachineDSL, DSLNode } from "../types/machine-dsl.js";
@@ -10,8 +12,9 @@ import type { DesignTokens } from "./token-extractor.js";
 import type { Section } from "./section-splitter.js";
 import type { SectionKind } from "../validators/tolerance.js";
 import type { GlobalDesignSystem } from "./global-design-system.js";
+import type { SectionManifest } from "./section-manifest.js";
+import type { SectionSemantics } from "./llm-semantic-analyzer.js";
 import { LLMClient } from "../llm/llm-client.js";
-import { buildCompactTree } from "./tree-formatter.js";
 
 export type SectionHTMLResult = {
   html: string;
@@ -50,6 +53,8 @@ export async function generateSemanticSectionHTML(
   options?: {
     llmClient?: LLMClient;
     skipCache?: boolean;
+    manifest?: SectionManifest;
+    semantics?: SectionSemantics | null;
   },
 ): Promise<SectionHTMLResult> {
   const cacheKey = hashSection(section, dsl.nodes);
@@ -62,9 +67,12 @@ export async function generateSemanticSectionHTML(
     return { html: "", classNames: [], semanticTag: "div" };
   }
 
-  const llm = options?.llmClient ?? new LLMClient({ maxTokens: 16384 });
+  const llm = options?.llmClient ?? new LLMClient({ maxTokens: 32768 });
 
-  const prompt = buildSectionPrompt(section, sectionRoot, nodeMap, tokens, kind, dsl.page, globalSystem, neighbors);
+  const prompt = buildSectionPrompt(
+    section, options?.manifest!, options?.semantics ?? null,
+    kind, dsl.page, globalSystem, neighbors,
+  );
   const startMs = Date.now();
 
   try {
@@ -75,101 +83,97 @@ export async function generateSemanticSectionHTML(
       2,
     );
     const elapsed = ((Date.now() - startMs) / 1000).toFixed(1);
-    const tokens = response.usage.inputTokens + response.usage.outputTokens;
+    const outTokens = response.usage.inputTokens + response.usage.outputTokens;
 
     const result = parseLLMOutput(response.text, section.name);
     if (!result.html) {
-      console.warn(`   ⚠️  [LLM] 生成结果无效 [${section.name}] (${elapsed}s, ${tokens} tokens) → fallback 机械翻译`);
+      console.warn(`   ⚠️  [LLM] 生成结果无效 [${section.name}] (${elapsed}s, ${outTokens} tokens) → fallback`);
       return { html: "", classNames: [], semanticTag: "div" };
     }
 
-    console.log(`   ✓ [LLM] 生成完成 [${section.name}] (${elapsed}s, ${tokens} tokens, ${result.classNames.length} classes)`);
+    console.log(`   ✓ [LLM] 生成完成 [${section.name}] (${elapsed}s, ${outTokens} tokens, ${result.classNames.length} classes)`);
     sectionCache.set(cacheKey, result);
     return result;
   } catch (err: any) {
     const elapsed = ((Date.now() - startMs) / 1000).toFixed(1);
-    console.warn(`   ✗ [LLM] 生成失败 [${section.name}] (${elapsed}s): ${err.message} → fallback 机械翻译`);
+    console.warn(`   ✗ [LLM] 生成失败 [${section.name}] (${elapsed}s): ${err.message} → fallback`);
     return { html: "", classNames: [], semanticTag: "div" };
   }
 }
 
-const SYSTEM_PROMPT = `You are an expert frontend developer converting design specs into clean, semantic HTML.
+const SYSTEM_PROMPT = `You are an expert frontend developer translating a design specification (JSON) into pixel-accurate, semantic HTML.
 
 CRITICAL RULES:
-1. Use semantic HTML5 tags: nav, header, section, article, main, aside, footer, h1-h6, p, button, a, img, ul/li, figure/figcaption
-2. Use meaningful, kebab-case class names: .navbar, .hero-title, .btn-primary, .feature-card, .section-header
-3. ONLY use CSS variables from the provided Global Design System — DO NOT create new color/spacing values
-4. Use the shared utility classes when applicable: .container, .btn-primary, .btn-secondary, .section-header
-5. Match layout structure with flexbox/grid
-6. Preserve ALL text content exactly
-7. Use actual image URLs from the design
-8. Responsive: use max-width containers, not fixed widths for main content
-9. ONLY output the section HTML, no <html>/<head>/<body> wrapper
-10. NO <style> tags — all styles use the shared CSS variables and utility classes
-11. Return ONLY a code block, no explanation
-
-Output format:
-<section class="section-name">
-  <!-- semantic HTML using shared utility classes and CSS vars -->
-</section>`;
+1. **Follow the spec exactly** — use the precise bounds, padding, gap, fontSize, colors from the JSON. Do NOT guess or approximate.
+2. Use semantic HTML5 tags: nav, header, section, article, main, aside, footer, h1-h6, p, button, a, img, ul/li, figure/figcaption
+3. Use meaningful, kebab-case class names based on the semantic analysis provided
+4. Match CSS variables from the Design System when a color/spacing value matches; use inline styles for spec-specific values
+5. Match layout EXACTLY: flex direction, gap, padding, justify, align from the manifest
+6. Preserve ALL text content and image URLs exactly as provided
+7. Be CONCISE — minimal wrapper divs, no unnecessary nesting
+8. Output ONLY the section HTML, no <html>/<head>/<body> wrapper, no <style> tags, no explanation`;
 
 function buildSectionPrompt(
   section: Section,
-  root: DSLNode,
-  nodeMap: Map<string, DSLNode>,
-  tokens: DesignTokens,
+  manifest: SectionManifest,
+  semantics: SectionSemantics | null,
   kind: SectionKind,
   page: MachineDSL["page"],
   globalSystem: GlobalDesignSystem,
   neighbors: { prev?: string; next?: string },
 ): string {
-  const treeStr = buildCompactTree(root, nodeMap, 0);
+  const manifestJSON = JSON.stringify(manifest, null, 2);
 
-  // 收集相邻 section 信息
   const neighborInfo: string[] = [];
   if (neighbors.prev) neighborInfo.push(`Previous section: "${neighbors.prev}"`);
   if (neighbors.next) neighborInfo.push(`Next section: "${neighbors.next}"`);
 
-  return `Convert this design section into clean, semantic HTML.
+  // 语义分析块
+  let semanticBlock = "";
+  if (semantics) {
+    const elements = semantics.keyElements
+      .map(e => `  - node "${e.nodeId}" → ${e.role} ${e.nodeType}${e.textPreview ? ` ("${e.textPreview.slice(0, 40)}")` : ""}`)
+      .join("\n");
 
-## Global Design System (SHARED — use these exact variables and classes)
+    semanticBlock = `
+## Semantic Analysis (pre-computed)
+- Section type: ${semantics.semanticType}
+- Purpose: ${semantics.purpose}
+- Suggested root tag: <${semantics.suggestedRootTag} class="${semantics.suggestedClassName}">
+- Key elements:
+${elements}
+`;
+  }
+
+  return `Convert this design section into pixel-accurate, semantic HTML.
+
+## Global Design System (CSS variables — use these when values match)
 ${globalSystem.rootCSS}
-
-## Shared Utility Classes
-.container { max-width: var(--content-width); margin: 0 auto; padding: 0 24px; }
-.section-header { text-align: center; max-width: 960px; margin: 0 auto 48px; }
-.btn-primary { display: inline-flex; align-items: center; justify-content: center; background: var(--text-primary); color: var(--white); padding: 14px 32px; border-radius: var(--radius-lg); font-size: 16px; font-weight: 600; }
-.btn-secondary { display: inline-flex; align-items: center; justify-content: center; background: var(--surface-6); color: var(--text-primary); padding: 14px 32px; border-radius: var(--radius-lg); font-size: 16px; font-weight: 500; }
 
 ## Page Context
 - Page: "${page.name}", width: ${page.width}px
 - Section: "${section.name}" (position ${parseInt(section.id.replace("section-", "")) + 1} of page)
 ${neighborInfo.length > 0 ? "- " + neighborInfo.join("\n- ") : ""}
-- Section type: ${kind}
-- Section nodes: ${section.nodeIds.length}
-
-## Section Structure
-${treeStr}
+- Content type: ${kind}
+${semanticBlock}
+## Section Design Specification (JSON — use these exact values)
+${manifestJSON}
 
 ## Instructions
-1. Analyze the section and determine its semantic purpose (navbar, hero, features, testimonials, footer, CTA, etc.)
-2. Use the most appropriate HTML5 semantic tag as the root: <nav>, <section>, <header>, <footer>, <article>
-3. Class names must be meaningful and consistent: .navbar, .hero-content, .btn-primary, .feature-title, .testimonial-card
-4. Use ONLY the CSS variables from the Global Design System above — never hardcode colors or spacing
-5. For centered content, wrap in <div class="container"> using the shared utility class
-6. Buttons should use .btn-primary or .btn-secondary classes when stylistically appropriate
-7. Section headers should use .section-header structure when applicable
-8. Match the layout structure (flex direction, gaps, alignment) from the design
-9. Include all text and images exactly as specified
-10. Output ONLY the HTML section, no wrapper html/head/body tags, no <style> tags
+1. The JSON above contains precise pixel data from the original design. Translate it faithfully.
+2. Use the Semantic Analysis to pick correct HTML tags and class names.
+3. Match colors, fontSize, fontWeight, padding, gap from the manifest exactly.
+4. Use CSS variables from the Design System when a color matches; otherwise inline styles.
+5. Preserve ALL text and image URLs verbatim.
+6. Output ONLY the HTML section code block, nothing else.
 
-Generate the semantic HTML now:`;
+Generate the HTML now:`;
 }
 
 /**
  * 解析 LLM 输出，提取 HTML
  */
-function parseLLMOutput(text: string, _sectionName: string): SectionHTMLResult {
+export function parseLLMOutput(text: string, _sectionName: string): SectionHTMLResult {
   let html = text.trim();
 
   html = html.replace(/^```html\s*\n?/i, "");
@@ -188,7 +192,6 @@ function parseLLMOutput(text: string, _sectionName: string): SectionHTMLResult {
   const tagMatch = html.match(/^\s*<([a-zA-Z0-9-]+)/);
   const semanticTag = tagMatch ? tagMatch[1] : "section";
 
-  // 拒绝包含 <style> 的输出（应该使用共享 CSS）
   if (html.includes("<style")) {
     html = html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "").trim();
   }
@@ -216,6 +219,8 @@ function isValidHTML(html: string): boolean {
 export async function generateAllSemanticSections(
   dsl: MachineDSL,
   sections: Section[],
+  manifests: SectionManifest[],
+  semanticsMap: Map<string, SectionSemantics>,
   nodeMap: Map<string, DSLNode>,
   tokens: DesignTokens,
   globalSystem: GlobalDesignSystem,
@@ -263,8 +268,12 @@ export async function generateAllSemanticSections(
       next: idx < sections.length - 1 ? sections[idx + 1].name : undefined,
     };
 
+    const manifest = manifests[idx];
+    const semantics = semanticsMap.get(section.id) ?? null;
+
     const result = await generateSemanticSectionHTML(
-      section, dsl, nodeMap, tokens, kind, globalSystem, neighbors, options,
+      section, dsl, nodeMap, tokens, kind, globalSystem, neighbors,
+      { ...options, manifest, semantics },
     );
     results.set(section.id, result);
   }, CONCURRENCY);

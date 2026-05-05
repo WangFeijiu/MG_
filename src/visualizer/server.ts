@@ -9,6 +9,9 @@ import { WebSocketServer, WebSocket } from "ws";
 import { readFileSync, existsSync, rmSync } from "node:fs";
 import { join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { config } from "dotenv";
+
+config();
 
 import { runVisualizerPipeline } from "./orchestrator.js";
 import type { VisualizerEvent } from "./types.js";

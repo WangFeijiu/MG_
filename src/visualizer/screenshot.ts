@@ -198,10 +198,17 @@ function analyzeDiffFeatures(diff: PNG, a: PNG, b: PNG, width: number, height: n
 
 // ========== Puppeteer 截图 ==========
 
-export async function screenshotFullPage(browser: Browser, html: string, width: number): Promise<PNG> {
+export async function screenshotFullPage(browser: Browser, html: string, width: number, expectedHeight?: number): Promise<PNG> {
   const page = await browser.newPage();
-  await page.setViewport({ width, height: 800 });
-  await page.setContent(html, { waitUntil: "networkidle0" });
+  await page.setViewport({ width, height: expectedHeight ?? 800 });
+  await page.setContent(html, { waitUntil: "domcontentloaded", timeout: 60000 });
+
+  // 强制设置 body 最小高度 = 设计稿高度, 确保绝对定位元素可见
+  if (expectedHeight) {
+    await page.evaluate(`document.body.style.minHeight = '${expectedHeight}px'`);
+  }
+
+  await new Promise(r => setTimeout(r, 3000));
   const screenshot = await page.screenshot({ type: "png", fullPage: true }) as Buffer;
   await page.close();
   return PNG.sync.read(screenshot);
