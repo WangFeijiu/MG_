@@ -1,35 +1,40 @@
-# MasterGo DSL 工具链
+# MasterGo DSL2React 工具链
 
-> 高还原度页面生成 + 可视化微调 + 最终项目代码输出
+> 设计稿到生产级 React 代码的自动化管线 — 高还原度 HTML + 组件识别 + 可视化验证
 
-## 🎯 核心理念
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-22+-green.svg)](https://nodejs.org/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**HTML 只是编辑预览层，机器 DSL 才是真相。**
+## 🎯 核心价值
 
-## 📋 完整链路
+将 MasterGo 设计稿自动转换为**可维护的 React 组件代码**，而非简单的像素还原：
 
-```text
-MasterGo DSL
-→ 统一机器 DSL
-→ 预览 HTML（带 data-dsl-id）
-→ 浏览器插件调整样式/布局
-→ 保存 patch JSON
-→ patch 回写机器 DSL
-→ 基于机器 DSL 生成项目代码
+- ✅ **三层组件识别**：原子 UI（button/card/grid）+ 布局组件（section/accordion）+ 业务语义（可选）
+- ✅ **三种渲染模式**：Pixel（严格还原）/ Semantic（语义化）/ Grid（结构优先）
+- ✅ **四层差异检测**：DOM 几何 → 颜色感知 → 文本内容 → 截图兜底
+- ✅ **React 组件输出**：Tailwind CSS + 组件库映射（`<Button>` / `<Card>` / `<Grid>`）
+- ✅ **可视化验证**：实时截图对比 + 差异热力图 + 修复建议
+
+## 📋 完整管线
+
 ```
-
-```text
 MasterGo 设计稿
-→ 获取 MasterGo DSL (通过 MCP)  (往往会丢失挺多细节 比如圆角 border类型)
-→ 转换为机器 DSL  (也可以增强缺失属性)
-→ 生成预览 HTML (带 data-dsl-id)
-→ 浏览器插件可视化编辑       
-→ 导出 Patch JSON  
-→ Patch 回写机器 DSL   
-→ 生成最终 React 代码 (考虑进一步发展：独立一个项目，可以引用公共组件库UI和业务组件库 text-[24px] -> text-xxl 直接替换成UI规范中的变量)
+  ↓ [MCP 协议获取]
+原始 DSL (MasterGo 格式)
+  ↓ [转换器]
+机器 DSL (统一中间表示)
+  ↓ [三层组件识别]
+组件识别结果 (button/card/grid/section...)
+  ↓ [HTML 生成器 + 动画策略]
+预览 HTML (带 data-dsl-id + CSS 优化)
+  ↓ [四层差异检测]
+差异报告 (layout/color/text/screenshot)
+  ↓ [LLM 修正 + 自动降级]
+收敛 HTML (13/13 通过)
+  ↓ [React 组件渲染器]
+React TSX + Tailwind (App.tsx + sections/*.tsx)
 ```
-MasterGo DSL = 设计稿原始描述
-机器 DSL = 为代码生成/渲染加工后的描述
 
 ## 🚀 快速开始
 
@@ -44,99 +49,315 @@ npm install
 创建 `.env` 文件：
 
 ```env
+# MasterGo MCP 配置
 MG_MCP_TOKEN=your_mastergo_token
 MG_FILE_ID=190096496279041
-MG_LAYER_ID=11:1644
+MG_LAYER_ID=11:1602
+
+# LLM API 配置（可选，用于语义分析和修正）
+LLM_API_KEY=your_glm_api_key
+LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+LLM_MODEL=glm-4-flash
 ```
 
-### 3. 运行工具链
+### 3. 运行管线
+
+#### 完整流程（从 MasterGo 获取 DSL）
 
 ```bash
 npm run dev
 ```
 
-这将自动执行以下步骤：
+#### 仅重建（从本地 DSL 重新生成 HTML）
 
-1. 从 MasterGo 获取原始 DSL
-2. 转换为机器 DSL
-3. 生成预览 HTML
-4. 检查并应用 patch
-5. 生成最终 React 代码
+```bash
+npm run dev -- --rebuild
+```
 
-所有输出文件将保存在 `output` 目录中。
+#### 自动化测试（v12-v14 完整验证）
 
-## 🎨 使用浏览器插件编辑
+```bash
+npm run test:automated
+```
 
-### 1. 加载插件
+输出：
+- `output/machine-dsl.json` — 机器 DSL
+- `output/preview.html` — 预览 HTML
+- `output/react/` — React 组件代码
+- `output/test-results/` — 差异报告
 
-1. 打开 Chrome 浏览器
-2. 访问 `chrome://extensions/`
-3. 开启"开发者模式"
-4. 点击"加载已解压的扩展程序"
-5. 选择 `extension` 目录
+#### 可视化验证（实时截图对比）
 
-### 2. 编辑页面
+```bash
+npm run visualize
+```
 
-1. 在浏览器中打开 `output/preview.html`
-2. 点击扩展图标打开编辑面板
-3. 点击页面上的元素开始编辑
-4. 调整圆角、位置、尺寸、裁剪等属性
-5. 点击"保存 Patch"按钮
-6. 点击"导出 Patch JSON"导出修改
-
-### 3. 应用 Patch 并重新生成
-
-1. 将导出的 `mastergo-dsl-patch.json` 重命名为 `patches.json`
-2. 将其复制到 `output` 目录
-3. 再次运行 `npm run dev`
-4. 工具会自动应用 patch 并生成最终代码
+打开浏览器访问 `http://localhost:3456`，查看：
+- 设计稿 vs HTML 截图对比
+- 差异热力图
+- Section 级别的视觉还原度
 
 ## 📁 项目结构
 
 ```
 .
 ├── src/
-│   ├── types/              # TypeScript 类型定义
-│   │   ├── machine-dsl.ts  # 机器 DSL 类型
-│   │   └── patch.ts        # Patch 类型
-│   ├── converters/         # 转换器
-│   │   └── mastergo-to-machine.ts  # MasterGo DSL → 机器 DSL
-│   ├── generators/         # 生成器
-│   │   ├── html-preview.ts # 机器 DSL → 预览 HTML
-│   │   └── react-code.ts   # 机器 DSL → React 代码
-│   ├── utils/              # 工具函数
-│   │   └── patch.ts        # Patch 处理工具
-│   └── index.ts            # 主入口
-├── extension/              # 浏览器插件
-│   ├── manifest.json       # 插件配置
-│   ├── popup.html          # 插件 UI
-│   ├── popup.js            # 插件逻辑
-│   ├── content.js          # 页面注入脚本
-│   └── content.css         # 注入样式
-├── output/                 # 输出目录
-│   ├── original-dsl.json   # 原始 MasterGo DSL
-│   ├── machine-dsl.json    # 机器 DSL
-│   ├── preview.html        # 预览 HTML
-│   ├── patches.json        # Patch 文件
-│   ├── final-machine-dsl.json  # 应用 patch 后的机器 DSL
-│   └── *.tsx               # 生成的 React 组件
-└── README.md               # 本文档
+│   ├── types/                    # TypeScript 类型定义
+│   │   ├── machine-dsl.ts        # 机器 DSL 核心类型
+│   │   ├── diff-report.ts        # 差异报告类型
+│   │   └── patch.ts              # Patch 系统类型
+│   ├── converters/               # 转换器
+│   │   ├── mastergo-to-machine.ts  # MasterGo DSL → 机器 DSL
+│   │   └── original-dsl-extractor.ts  # 原始 DSL 数据提取
+│   ├── generators/               # 生成器
+│   │   ├── component-recognizer.ts    # 三层组件识别器
+│   │   ├── component-mapper.ts        # 组件库映射
+│   │   ├── html-preview.ts            # HTML 生成器
+│   │   ├── react-component-renderer.ts  # React TSX 渲染器
+│   │   ├── tailwind-utils.ts          # Tailwind 工具函数
+│   │   ├── section-splitter.ts        # Section 拆分器
+│   │   ├── programmatic-grid-renderer.ts   # Grid 模式渲染器
+│   │   ├── programmatic-pixel-renderer.ts  # Pixel 模式渲染器
+│   │   └── llm-section-html-generator.ts   # LLM 语义渲染器
+│   ├── optimizers/               # 优化器
+│   │   ├── multi-layer-diff-detector.ts   # 四层差异检测器
+│   │   ├── animation-policy.ts            # 动画策略注入器
+│   │   ├── css-class-extractor.ts         # CSS 类提取器
+│   │   ├── dom-flattener.ts               # DOM 扁平化器
+│   │   ├── llm-section-fixer.ts           # LLM 修正器
+│   │   └── diff-report-formatter.ts       # 差异报告格式化
+│   ├── validators/               # 验证器
+│   │   ├── screenshot-compare.ts  # 截图对比
+│   │   └── tolerance.ts           # 容差配置
+│   ├── visualizer/               # 可视化服务
+│   │   ├── server.ts              # WebSocket 服务器
+│   │   ├── orchestrator.ts        # 管线编排器
+│   │   └── screenshot.ts          # 截图工具
+│   ├── llm/                      # LLM 客户端
+│   │   └── llm-client.ts          # 统一 LLM 接口
+│   ├── cli/                      # CLI 工具
+│   │   ├── automated-test.ts      # 自动化测试入口
+│   │   └── generate-react.ts      # React 代码生成入口
+│   └── index.ts                  # 主入口
+├── output/                       # 输出目录（自动生成）
+│   ├── machine-dsl.json          # 机器 DSL
+│   ├── preview.html              # 预览 HTML
+│   ├── react/                    # React 组件输出
+│   │   ├── App.tsx
+│   │   └── sections/*.tsx
+│   ├── test-results/             # 测试报告
+│   │   └── diff-report.html
+│   └── visualizer/               # 可视化产物
+│       ├── sections/*.png
+│       ├── baselines/*.png
+│       └── diffs/*.png
+└── README.md
 ```
 
 ## 🔧 核心功能
 
-### 1. 机器 DSL
+### 1. 三层组件识别
+
+**Layer 1: 原子 UI 组件**
+- `button` — 小型圆角容器 + 文本子节点
+- `image` — 图片节点（默认不动画）
+- `text` — 文本节点
+- `icon` — 图标节点（默认不动画）
+- `link` — 可点击小元素
+
+**Layer 2: 布局组件**
+- `card` — 中型圆角容器 + 多子节点
+- `grid` — 网格布局容器
+- `card-list` — 卡片列表容器
+- `stack` — 垂直/水平堆叠
+- `accordion` — 手风琴容器
+- `section` — 页面区块（默认不动画）
+
+**Layer 3: 业务语义（可选）**
+- `hero` / `navbar` / `FAQ` / `CTA` / `footer`
+
+识别依据：
+- 视觉属性：`borderRadius`, `size`, `background`
+- 结构属性：`children pattern`, `layout.display`
+
+### 2. 三种渲染模式
+
+| 模式 | 适用场景 | 容差配置 |
+|------|---------|---------|
+| **Pixel** | 严格像素还原（hero/banner） | layout ≤4px, color ΔE≤4, screenshot ≥92% |
+| **Semantic** | 语义化布局（card/grid） | layout ≤12px, color ΔE≤6, screenshot ≥85% |
+| **Grid** | 结构优先（list/table） | layout ≤24px, color ΔE≤7, screenshot ≥80% |
+
+自动分类器根据 Section 特征选择最佳模式。
+
+### 3. 四层差异检测
+
+**Layer 1: DOM 几何**
+- Pixel/Semantic: 位置偏移、尺寸差异
+- Grid: 结构评分（子节点数量、顺序）
+
+**Layer 2: 区域颜色**
+- 感知色差（CIELAB ΔE）
+- 块级颜色对比（16×16 block）
+
+**Layer 3: 文本内容**
+- 文本内容匹配
+- 字号、字重、颜色
+
+**Layer 4: 截图兜底**
+- Pixelmatch 像素对比
+- 差异热力图生成
+
+### 4. 动画策略
+
+**白名单机制**（避免"廉价感"）：
+- ✅ 启用动画：`button`, `card`, `grid`, `accordion`, `link`
+- ❌ 禁用动画：`image`, `icon`, `section`, `text`
+
+动画类型：
+- `fade-in` — 淡入（section 根）
+- `slide-up` — 上滑（card）
+- `scale-in` — 缩放（button）
+- `pulse` — 脉冲（icon，默认关闭）
+
+### 5. React 组件输出
+
+**组件库映射**：
+
+```tsx
+// Before (HTML 还原)
+<div class="node-10001"><p>Get Started</p></div>
+
+// After (React 组件)
+<Button variant="primary" size="lg">Get Started</Button>
+```
+
+**Tailwind 工具类生成**：
+
+```tsx
+// 从 DSL 视觉属性自动生成
+<div className="flex items-center gap-4 p-6 rounded-xl bg-white shadow-lg">
+  <ResponsiveImage src="..." className="w-1/2 object-cover" />
+  <div className="flex flex-col gap-2">
+    <h1 className="text-4xl font-bold text-gray-900">Title</h1>
+    <p className="text-lg text-gray-600">Description</p>
+  </div>
+</div>
+```
+
+**输出结构**：
+
+```
+output/react/
+├── App.tsx                    # 主应用入口
+└── sections/
+    ├── HeroSection.tsx        # Hero 区块
+    ├── FeaturesSection.tsx    # Features 区块
+    └── CTASection.tsx         # CTA 区块
+```
+
+## 📊 质量指标
+
+### v12 管线（可维护优先）
+
+- ✅ **13/13 首轮通过**（pixel=0, semantic/grid 自动降级）
+- ✅ **65% 可维护性**（CSS 提取 + DOM 扁平化）
+- ✅ **分模式 Diff**（pixel/semantic/grid 不同容差）
+
+### v13 管线（组件识别）
+
+- ✅ **13/13 通过**（92.2% 视觉还原）
+- ✅ **19% 有效组件覆盖**（43 个 meaningful components）
+- ✅ **~10% 动画覆盖**（白名单机制，避免廉价感）
+- ✅ **双指标 Coverage**：
+  - `nodeRecognitionCoverage`: 任何被识别的节点 / 总数（含 image/icon/text）
+  - `meaningfulComponentCoverage`: button/card/grid/accordion/link / 总 container 数
+
+### v14 管线（React 组件输出）
+
+- ✅ **13 个 Section TSX 文件**
+- ✅ **43 个组件映射**（Button/Card/Grid/Accordion/Link/CardList）
+- ✅ **Tailwind 工具类覆盖**（layout/color/typography/spacing）
+
+## 🎨 可视化验证
+
+启动可视化服务：
+
+```bash
+npm run visualize
+```
+
+打开浏览器访问 `http://localhost:3456`，功能包括：
+
+1. **实时管线执行**
+   - 点击 "Start Pipeline" 触发完整流程
+   - 实时显示进度（DSL 加载 → Section 拆分 → 截图对比）
+
+2. **Section 级对比**
+   - 设计稿截图 vs HTML 截图
+   - 差异热力图（红色 = 差异区域）
+   - 差异百分比 + 容差配置
+
+3. **差异报告**
+   - Layout Issues（位置/尺寸偏移）
+   - Color Issues（颜色差异 ΔE）
+   - Text Issues（文本内容/样式）
+   - Screenshot Issues（像素差异）
+
+4. **导出产物**
+   - `output/visualizer/sections/*.png` — Section 截图
+   - `output/visualizer/baselines/*.png` — 设计稿裁剪
+   - `output/visualizer/diffs/*.png` — 差异热力图
+
+## 🔑 关键实现点
+
+### 1. 机器 DSL 设计
 
 统一的中间表示，包含：
 
-- **布局**：flex/absolute、方向、对齐、间距
-- **样式**：背景、文本、圆角、overflow、阴影等
-- **内容**：文本、图片
-- **元信息**：源节点 ID、组件提示
+```typescript
+type DSLNode = {
+  id: string;                    // 唯一标识
+  type: "container" | "text" | "image" | "icon";
+  name: string;                  // 节点名称
+  children: string[];            // 子节点 ID
+  layout: {
+    display?: "flex" | "absolute" | "grid";
+    width?: number | "auto" | "fill";
+    height?: number | "auto" | "fill";
+    x?: number;
+    y?: number;
+    flexDirection?: "row" | "column";
+    justifyContent?: string;
+    alignItems?: string;
+    gap?: number;
+    padding?: Spacing;
+  };
+  style?: {
+    background?: string;
+    borderRadius?: BorderRadius;
+    fontSize?: number;
+    fontWeight?: string | number;
+    color?: string;
+    overflow?: "visible" | "hidden";
+    objectFit?: "fill" | "contain" | "cover";
+  };
+  content?: {
+    text?: string;
+    src?: string;
+  };
+};
+```
 
 ### 2. Patch 系统
 
-所有修改都以语义化的 patch 存储：
+所有修改以语义化 Patch 存储，支持：
+
+- `update_style` — 更新样式
+- `update_layout` — 更新布局
+- `update_content` — 更新内容
+
+示例：
 
 ```json
 {
@@ -156,121 +377,132 @@ npm run dev
 }
 ```
 
-支持的操作类型：
+### 3. 分模式容差配置
 
-- `update_style`: 更新样式
-- `update_layout`: 更新布局
-- `update_content`: 更新内容
-
-### 3. 浏览器插件功能
-
-#### 圆角编辑
-- 全部联动/四角独立
-- 预设值：0/4/8/12/16/24/32/全圆
-
-#### 位置调整
-- X/Y 坐标调整
-
-#### 尺寸调整
-- 宽度/高度
-- gap 间距
-
-#### 裁剪相关
-- overflow: visible/hidden
-- objectFit: fill/contain/cover
-
-## 📝 示例 Patch 文档
-
-```json
-{
-  "version": 1,
-  "patches": [
-    {
-      "id": "patch_001",
-      "targetNodeId": "node_hero",
-      "op": "update_style",
-      "payload": {
-        "borderRadius": {
-          "linked": true,
-          "topLeft": 16,
-          "topRight": 16,
-          "bottomRight": 16,
-          "bottomLeft": 16
-        },
-        "overflow": "hidden"
-      }
-    },
-    {
-      "id": "patch_002",
-      "targetNodeId": "node_title",
-      "op": "update_layout",
-      "payload": {
-        "y": 96
-      }
-    }
-  ]
-}
-```
-
-## 🎯 最终代码生成重点
-
-生成的 React 代码专注于高还原度：
-
-1. **容器还原**：div/flex/absolute/padding/gap
-2. **文本还原**：字号/粗细/行高/颜色/对齐
-3. **图片还原**：src/宽高/object-fit/圆角/裁切
-4. **卡片视觉**：border-radius/overflow/box-shadow/border
-
-## 🔑 关键实现点
-
-### 1. 节点 ID 绑定必须稳定
-
-HTML 中的 `data-dsl-id` 永远映射到机器 DSL 节点：
-
-```html
-<div class="dsl-node dsl-container" data-dsl-id="node_hero" data-dsl-type="container">
-  ...
-</div>
-```
-
-### 2. Patch 必须是语义化的
-
-不要存：
-```json
-{ "style": "border-radius:16px; overflow:hidden;" }
-```
-
-要存：
-```json
-{
-  "borderRadius": {
-    "linked": true,
-    "topLeft": 16,
-    "topRight": 16,
-    "bottomRight": 16,
-    "bottomLeft": 16
+```typescript
+const DIFF_PROFILES: Record<string, DiffProfile> = {
+  pixel: {
+    positionTolerance: 4,
+    sizeTolerance: 4,
+    colorDeltaE: 4,
+    screenshotThreshold: 0.92,
   },
-  "overflow": "hidden"
-}
+  semantic: {
+    positionTolerance: 12,
+    sizeTolerance: 16,
+    colorDeltaE: 6,
+    screenshotThreshold: 0.85,
+  },
+  grid: {
+    positionTolerance: 24,
+    sizeTolerance: 24,
+    colorDeltaE: 7,
+    screenshotThreshold: 0.80,
+  },
+};
 ```
+
+## 📝 使用示例
+
+### 示例 1: 完整流程
+
+```bash
+# 1. 从 MasterGo 获取 DSL 并生成 HTML
+npm run dev
+
+# 2. 运行自动化测试（验证视觉还原度）
+npm run test:automated
+
+# 3. 启动可视化验证
+npm run visualize
+
+# 4. 查看 React 组件输出
+ls output/react/sections/
+```
+
+### 示例 2: 仅重建 HTML
+
+```bash
+# 从本地 machine-dsl.json 重新生成 HTML（不重新获取 DSL）
+npm run dev -- --rebuild
+```
+
+### 示例 3: 跳过截图验证
+
+```bash
+# 跳过截图对比（加速开发）
+npm run dev -- --skip-validate
+```
+
+## 🧪 测试
+
+### 单元测试
+
+```bash
+npm run test
+```
+
+### 测试覆盖率
+
+```bash
+npm run test:coverage
+```
+
+### 自动化测试
+
+```bash
+npm run test:automated
+```
+
+输出：
+- `output/test-results/diff-report.html` — 差异报告
+- `output/test-results/debug-*.png` — 调试截图
+
+## 🛠️ 开发
+
+### 代码规范
+
+```bash
+# Lint
+npm run lint
+
+# Format
+npm run format
+
+# Type check
+npx tsc --noEmit
+```
+
+### 调试
+
+1. **查看机器 DSL**：`output/machine-dsl.json`
+2. **查看预览 HTML**：`output/preview.html`
+3. **查看差异报告**：`output/test-results/diff-report.html`
+4. **查看 React 输出**：`output/react/`
 
 ## 📖 API 文档
 
-### convertMasterGoToMachine(masterGoDSL)
+### 核心 API
+
+#### `convertMasterGoToMachine(masterGoDSL: MasterGoDSL): MachineDSL`
 
 将 MasterGo DSL 转换为机器 DSL。
 
-### generatePreviewHTML(machineDSL)
+#### `generatePreviewHTML(machineDSL: MachineDSL, options?: { originalDslData?: OriginalDslData }): Promise<string>`
 
-生成带有 `data-dsl-id` 的预览 HTML。
+生成预览 HTML。
 
-### generateReactCode(machineDSL)
+#### `recognizeComponents(nodes: DSLNode[], nodeMap: Map<string, DSLNode>): ComponentRecognition[]`
+
+三层组件识别。
+
+#### `renderReactComponents(dsl: MachineDSL, recognitions: ComponentRecognition[], nodeMap: Map<string, DSLNode>): ReactComponentOutput`
 
 生成 React 组件代码。
 
-### applyPatches(machineDSL, patchDocument)
+#### `multiLayerDiffDetect(page: Page, sections: Section[], manifests: SectionManifest[], baselinePNG: PNG, options?: DiffDetectionOptions): Promise<PageDiffReport>`
 
-应用 patch 到机器 DSL，返回新的 DSL 对象。
+四层差异检测。
 
 ## 🤝 贡献
 
@@ -279,3 +511,7 @@ HTML 中的 `data-dsl-id` 永远映射到机器 DSL 节点：
 ## 📄 License
 
 MIT
+
+---
+
+**Made with ❤️ by MasterGo Team**
